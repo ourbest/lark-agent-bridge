@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "/Users/yonghui/.nvm/versions/node/v24.0.2/bin/node --experimental-strip-types --test tests/all.test.ts",
-    "dev": "/Users/yonghui/.nvm/versions/node/v24.0.2/bin/node --experimental-strip-types src/index.ts"
+    "dev": "/Users/yonghui/.nvm/versions/node/v24.0.2/bin/node --experimental-strip-types src/main.ts",
+    "start": "/Users/yonghui/.nvm/versions/node/v24.0.2/bin/node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
     "@larksuite/openclaw-lark": "2026.3.26"
