@@ -4,6 +4,7 @@ export interface BindingStore {
   setBinding(projectInstanceId: string, sessionId: string): void;
   deleteByProject(projectInstanceId: string): void;
   deleteBySession(sessionId: string): void;
+  getAllBindings(): BindingRecord[];
 }
 
 export interface BindingRecord {
@@ -45,6 +46,12 @@ export class InMemoryBindingStore implements BindingStore {
       this.sessionToProject.delete(sessionId);
       this.projectToSession.delete(projectInstanceId);
     }
+  }
+
+  getAllBindings(): BindingRecord[] {
+    return Array.from(this.projectToSession.entries()).map(
+      ([projectInstanceId, sessionId]) => ({ projectInstanceId, sessionId }),
+    );
   }
 }
 
