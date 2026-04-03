@@ -1,14 +1,12 @@
 import type { Server } from 'node:http';
 
 import { LarkAdapter } from './adapters/lark/adapter.ts';
-import { sendOutboundViaOpenClawLark } from './adapters/lark/openclaw-lark.ts';
 import { createApiServer } from './api/server.ts';
 import { BindingService } from './core/binding/binding-service.ts';
 import { BridgeRouter } from './core/router/router.ts';
 import type { BridgeConfig } from './types/index.ts';
 import { InMemoryBindingStore } from './storage/binding-store.ts';
 import type { LarkTransport } from './adapters/lark/adapter.ts';
-import type { OpenClawLarkModule } from './adapters/lark/openclaw-lark.ts';
 import type { BindingStore } from './storage/binding-store.ts';
 
 export interface BridgeRuntime {
@@ -26,8 +24,6 @@ export function createBridgeApp(options: {
   config: BridgeConfig;
   larkTransport: LarkTransport;
   bindingStore?: BindingStore;
-  openclawConfig?: unknown;
-  openclawLark?: OpenClawLarkModule;
 }): BridgeRuntime {
   const bindingStore = options.bindingStore ?? new InMemoryBindingStore();
   const bindingService = new BindingService(bindingStore);
@@ -40,15 +36,6 @@ export function createBridgeApp(options: {
   larkAdapter.onMessage(async (message) => {
     const outboundMessage = await router.routeInboundMessage(message);
     if (outboundMessage !== null) {
-      if (options.openclawConfig !== undefined) {
-        await sendOutboundViaOpenClawLark({
-          config: options.openclawConfig,
-          message: outboundMessage,
-          openclawLark: options.openclawLark,
-        });
-        return;
-      }
-
       await larkAdapter.send(outboundMessage);
     }
   });

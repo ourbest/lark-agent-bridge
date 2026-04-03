@@ -2,12 +2,12 @@ import { pathToFileURL } from 'node:url';
 
 import { createBridgeApp } from './app.ts';
 import { createLocalDevLarkTransport, resolveBridgeConfig, resolveStoragePath } from './runtime/bootstrap.ts';
-import { createOpenClawLiteTransport } from './adapters/lark/openclaw-lite-transport.ts';
 import { resolveCodexRuntimeConfigs } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
 import { createCodexProjectRegistry } from './runtime/codex-project-registry.ts';
-import { resolveOpenClawLiteRuntimeConfig } from './runtime/openclaw-lite-config.ts';
+import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
+import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
 import { JsonBindingStore } from './storage/json-binding-store.ts';
 
 export async function run(): Promise<void> {
@@ -15,17 +15,10 @@ export async function run(): Promise<void> {
   const storagePath = resolveStoragePath();
   const consoleRuntime = resolveConsoleRuntimeConfig();
   const codexRuntimes = resolveCodexRuntimeConfigs() ?? [];
-  const openClawLiteRuntime = resolveOpenClawLiteRuntimeConfig();
-  const transport = openClawLiteRuntime !== null
-    ? createOpenClawLiteTransport({
-        ...openClawLiteRuntime,
-        onSend(message) {
-          console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`);
-        },
-        onStderr(text) {
-          process.stderr.write(text);
-        },
-      })
+  const feishuRuntime = resolveFeishuRuntimeConfig();
+
+  const transport = feishuRuntime !== null && feishuRuntime.wsEnabled
+    ? await createFeishuWebSocketTransportFromRuntime(feishuRuntime)
     : createLocalDevLarkTransport({
         onSend(message) {
           console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`);
@@ -188,6 +181,32 @@ export async function run(): Promise<void> {
   });
   process.once('SIGTERM', () => {
     void shutdown();
+  });
+}
+
+async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId: string; appSecret: string }) {
+  const lark = await import('@larksuiteoapi/node-sdk');
+
+  const client = new lark.ws.Client({
+    appID: feishuRuntime.appId,
+    appSecret: feishuRuntime.appSecret,
+    loggerLevel: lark.LoggerLevel.warn,
+  });
+
+  return createFeishuWebSocketTransport({
+    appId: feishuRuntime.appId,
+    appSecret: feishuRuntime.appSecret,
+    larkClient: client,
+    sendMessageFn: async ({ receiveId, msgType, content }) => {
+      await lark.im.v1.MessagesAPI.send_message(
+        new lark.im.v1.SendMessageReq({
+          path: { message_id: receiveId },
+          data: new lark.im.v1.SendMessageReqData({ msg_type: msgType, content }),
+        }),
+      );
+    },
+    onStderr: (text) => process.stderr.write(text),
+    onSend: (message) => console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`),
   });
 }
 
