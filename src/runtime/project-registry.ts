@@ -1,4 +1,5 @@
 import type { CodexProjectClient } from './codex-project-registry.ts';
+import type { BridgeRouter } from '../core/router/router.ts';
 
 export interface ProjectConfig {
   projectInstanceId: string;
@@ -8,6 +9,7 @@ export interface ProjectConfig {
 export interface ProjectRegistryOptions {
   getProjectConfig: (projectInstanceId: string) => ProjectConfig | null;
   createClient: (projectInstanceId: string, websocketUrl: string) => CodexProjectClient;
+  router?: Pick<BridgeRouter, 'registerProjectHandler'>;
 }
 
 export interface ProjectRegistry {
@@ -37,12 +39,24 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           const config = options.getProjectConfig(event.projectId);
           if (!config) return;
 
+          const client = options.createClient(event.projectId, config.websocketUrl);
           entry = {
-            client: options.createClient(event.projectId, config.websocketUrl),
+            client,
             bindingCount: 0,
             sessions: new Set(),
           };
           activeProjects.set(event.projectId, entry);
+
+          if (options.router) {
+            options.router.registerProjectHandler(event.projectId, async ({ message }) => {
+              try {
+                const text = await client.generateReply({ text: message.text });
+                return { text };
+              } catch {
+                return null;
+              }
+            });
+          }
         }
 
         entry.sessions.add(event.sessionId);

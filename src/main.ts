@@ -3,10 +3,10 @@ import 'dotenv/config';
 
 import { createBridgeApp } from './app.ts';
 import { createLocalDevLarkTransport, resolveBridgeConfig, resolveStoragePath } from './runtime/bootstrap.ts';
-import { resolveCodexRuntimeConfigs } from './runtime/codex-config.ts';
+import { loadProjectsFromFile, resolveCodexRuntimeConfigs, type ProjectConfigEntry } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
-import { createCodexProjectRegistry } from './runtime/codex-project-registry.ts';
+import { createProjectRegistry } from './runtime/project-registry.ts';
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
 import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
 import { JsonBindingStore } from './storage/json-binding-store.ts';
@@ -125,14 +125,36 @@ export async function run(): Promise<void> {
   }
 
   let codexProjectRegistry = null;
-  if (codexRuntimes.length > 0) {
-    codexProjectRegistry = createCodexProjectRegistry({
-      projects: codexRuntimes,
+  const projectConfigEntries: ProjectConfigEntry[] = loadProjectsFromFile('projects.json') ?? [];
+  if (projectConfigEntries.length > 0) {
+    const projectRegistry = createProjectRegistry({
+      getProjectConfig: (projectInstanceId: string) => {
+        const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
+        if (!entry || !entry.websocketUrl) return null;
+        return { projectInstanceId: entry.projectInstanceId, websocketUrl: entry.websocketUrl };
+      },
+      createClient: (projectInstanceId: string, websocketUrl: string) =>
+        new CodexAppServerClient({
+          command: 'codex',
+          args: ['app-server'],
+          clientInfo: { name: 'codex-bridge', title: 'Codex Bridge', version: '0.1.0' },
+          serviceName: 'codex-bridge',
+          transport: 'websocket',
+          websocketUrl,
+        }),
+      router: app.router,
     });
-    codexProjectRegistry.attach(app.router);
-      console.log(
-        `[codex-bridge] codex app-server attached for ${codexRuntimes.length} project${codexRuntimes.length === 1 ? '' : 's'}`,
-      );
+
+    app.bindingService.onBindingChange((e) => {
+      void projectRegistry.onBindingChanged(e);
+    });
+
+    for (const binding of app.bindingService.getAllBindings()) {
+      await projectRegistry.onBindingChanged({ type: 'bound', projectId: binding.projectInstanceId, sessionId: binding.sessionId });
+    }
+
+    codexProjectRegistry = projectRegistry;
+    console.log(`[codex-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
   }
 
   await app.start();
@@ -188,8 +210,16 @@ export async function run(): Promise<void> {
 async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId: string; appSecret: string }) {
   const lark = await import('@larksuiteoapi/node-sdk');
 
-  const client = new lark.ws.Client({
-    appID: feishuRuntime.appId,
+  const wsClient = new lark.WSClient({
+    appId: feishuRuntime.appId,
+    appSecret: feishuRuntime.appSecret,
+    loggerLevel: lark.LoggerLevel.debug,
+  });
+
+  const eventDispatcher = new lark.EventDispatcher({});
+
+  const restClient = new lark.Client({
+    appId: feishuRuntime.appId,
     appSecret: feishuRuntime.appSecret,
     loggerLevel: lark.LoggerLevel.warn,
   });
@@ -197,14 +227,19 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
   return createFeishuWebSocketTransport({
     appId: feishuRuntime.appId,
     appSecret: feishuRuntime.appSecret,
-    larkClient: client,
+    wsClient,
+    eventDispatcher,
     sendMessageFn: async ({ receiveId, msgType, content }) => {
-      await lark.im.v1.MessagesAPI.send_message(
-        new lark.im.v1.SendMessageReq({
-          path: { message_id: receiveId },
-          data: new lark.im.v1.SendMessageReqData({ msg_type: msgType, content }),
-        }),
-      );
+      await restClient.im.v1.message.create({
+        data: {
+          receive_id: receiveId,
+          msg_type: msgType,
+          content,
+        },
+        params: {
+          receive_id_type: 'chat_id',
+        },
+      });
     },
     onStderr: (text) => process.stderr.write(text),
     onSend: (message) => console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`),
