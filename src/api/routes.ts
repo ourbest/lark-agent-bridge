@@ -70,6 +70,13 @@ export function createApiRequestHandler(dependencies: ApiDependencies) {
         sendEmpty(response, 204);
         return;
       }
+
+      const sessionId = readPathId(url.pathname, '/bindings/session/');
+      if (sessionId !== null) {
+        await dependencies.bindingService.unbindSession(sessionId);
+        sendEmpty(response, 204);
+        return;
+      }
     }
 
     if (request.method === 'GET') {

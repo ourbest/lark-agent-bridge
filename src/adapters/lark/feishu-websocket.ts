@@ -3,10 +3,12 @@ import type { LarkEventPayload, LarkTransport } from './adapter.ts';
 export interface FeishuWebSocketTransportOptions {
   appId: string;
   appSecret: string;
-  larkClient: {
-    start(): Promise<void>;
-    stop(): Promise<void>;
-    on(event: string, handler: (...args: unknown[]) => void): unknown;
+  wsClient: {
+    start(params: { eventDispatcher: { register(handler: Record<string, Function>): { invoke(data: unknown, params?: object): Promise<unknown> } } }): Promise<void>;
+    close(): void;
+  };
+  eventDispatcher: {
+    register(handler: Record<string, Function>): { invoke(data: unknown, params?: object): Promise<unknown> };
   };
   sendMessageFn: (opts: {
     receiveId: string;
@@ -19,14 +21,14 @@ export interface FeishuWebSocketTransportOptions {
 
 export interface FeishuWebSocketTransport extends LarkTransport {
   start(): Promise<void>;
-  stop(): Promise<void>;
+  stop(): void;
   isReady(): boolean;
 }
 
 export function createFeishuWebSocketTransport(options: FeishuWebSocketTransportOptions): FeishuWebSocketTransport {
   let eventHandler: ((event: LarkEventPayload) => void | Promise<void>) | null = null;
   let started = false;
-  let ready = false;
+  let stopped = false;
 
   // Per-chat message queue for serializing messages within each chat
   const chatQueues = new Map<string, { running: boolean; tasks: (() => Promise<void>)[] }>();
@@ -60,62 +62,75 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
     processQueue(chatId);
   }
 
-  // Register P2ImMessageReceiveV1 handler
-  options.larkClient.on('P2ImMessageReceiveV1', (data: {
-    event?: {
-      message?: {
-        message_id?: string;
-        chat_id?: string;
-        content?: string;
-      };
-      sender?: {
-        sender_id?: { open_id?: string };
-      };
-    };
-  }) => {
-    const msg = data?.event?.message;
-    if (!msg || !msg.message_id || !msg.chat_id) {
+  async function startWebSocket() {
+    if (started || stopped) {
       return;
     }
 
-    let text = '';
-    try {
-      const parsed = JSON.parse(msg.content);
-      text = typeof parsed.text === 'string' ? parsed.text : '';
-    } catch {
-      text = '';
-    }
+    options.eventDispatcher.register({
+      async 'im.message.receive_v1'(data: {
+        sender?: {
+          sender_id?: {
+            open_id?: string;
+            user_id?: string;
+            union_id?: string;
+          };
+          sender_type?: string;
+          tenant_key?: string;
+        };
+        message?: {
+          message_id?: string;
+          chat_id?: string;
+          chat_type?: string;
+          content?: string;
+          create_time?: string;
+        };
+      }) {
+        const msg = data?.message;
+        if (!msg || !msg.message_id || !msg.chat_id) {
+          return;
+        }
 
-    const event: LarkEventPayload = {
-      sessionId: msg.chat_id,
-      messageId: msg.message_id,
-      text,
-      senderId: data.event?.sender?.sender_id?.open_id ?? '',
-      timestamp: '',
-    };
+        let text = '';
+        try {
+          const parsed = JSON.parse(msg.content);
+          text = typeof parsed.text === 'string' ? parsed.text : '';
+        } catch {
+          text = '';
+        }
 
-    void eventHandler?.(event);
-  });
+        const event: LarkEventPayload = {
+          sessionId: msg.chat_id,
+          messageId: msg.message_id,
+          text,
+          senderId: data.sender?.sender_id?.open_id ?? '',
+          timestamp: msg.create_time ?? '',
+        };
+
+        void eventHandler?.(event);
+      },
+    });
+
+    await options.wsClient.start({ eventDispatcher: options.eventDispatcher });
+    started = true;
+  }
 
   return {
     onEvent(handler) {
       eventHandler = handler;
     },
     async start() {
-      if (started) {
+      await startWebSocket();
+    },
+    stop() {
+      if (stopped) {
         return;
       }
-      started = true;
-      await options.larkClient.start();
-      ready = true;
-    },
-    async stop() {
-      await options.larkClient.stop();
-      started = false;
-      ready = false;
+      stopped = true;
+      options.wsClient.close();
     },
     isReady() {
-      return ready;
+      return started && !stopped;
     },
     async sendMessage(message) {
       enqueueMessage(message.sessionId, async () => {
