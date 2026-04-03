@@ -9,6 +9,7 @@
     "start": "/Users/yonghui/.nvm/versions/node/v24.0.2/bin/node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.6.0"
+    "@larksuiteoapi/node-sdk": "^1.6.0",
+    "dotenv": "^17.4.0"
   }
 }

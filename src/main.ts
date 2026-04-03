@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import 'dotenv/config';
 
 import { createBridgeApp } from './app.ts';
 import { createLocalDevLarkTransport, resolveBridgeConfig, resolveStoragePath } from './runtime/bootstrap.ts';
