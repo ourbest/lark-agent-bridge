@@ -4,9 +4,10 @@ import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts'
 
 export interface CodexProjectClient {
   generateReply(input: { text: string; cwd?: string }): Promise<string>;
-  startThread?(input: { cwd?: string }): Promise<string>;
+  startThread?(input: { cwd?: string; force?: boolean }): Promise<string>;
   executeCommand?(input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
   resumeThread?(input: { threadId: string; cwd?: string }): Promise<string>;
+  onNotification?: ((message: { method: string; params?: Record<string, unknown> }) => void | Promise<void>) | null;
   onServerRequest?: ((request: CodexServerRequest) => void | Promise<void>) | null;
   onThreadChanged?: ((threadId: string) => void) | null;
   respondToServerRequest?: (requestId: number | string, result: unknown) => Promise<void>;

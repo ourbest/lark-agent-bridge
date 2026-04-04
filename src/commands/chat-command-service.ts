@@ -29,6 +29,7 @@ export interface ChatCommandServiceDependencies {
   projectRegistry: {
     describeProject(projectInstanceId: string): Promise<ProjectState>;
     getProjectConfig?(projectInstanceId: string): { cwd?: string | null } | null;
+    startThread?(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
     getLastThread?(projectInstanceId: string, sessionId: string): Promise<string | null>;
     resumeThread?(projectInstanceId: string, threadId: string): Promise<string>;
   };
@@ -43,7 +44,7 @@ export interface ChatCommandService {
 }
 
 function isBridgeCommandToken(token: string): boolean {
-  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'sessions' || token === 'reload' || token === 'resume';
+  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'sessions' || token === 'reload' || token === 'resume' || token === 'new';
 }
 
 function isCodexCommandToken(token: string): boolean {
@@ -58,7 +59,17 @@ const SUPPORTED_CODEX_METHODS = new Set([
   'session/get',
   'thread/get',
   'thread/read',
+  'thread/start',
 ] as const);
+
+type SupportedCodexMethod =
+  | 'app/list'
+  | 'session/list'
+  | 'thread/list'
+  | 'session/get'
+  | 'thread/get'
+  | 'thread/read'
+  | 'thread/start';
 
 function yesNo(value: boolean): 'yes' | 'no' {
   return value ? 'yes' : 'no';
@@ -74,6 +85,7 @@ function buildHelpLines(): string[] {
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
+    '  //new               - start a new codex thread for this chat',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
@@ -86,6 +98,7 @@ function buildHelpLines(): string[] {
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ];
 }
@@ -167,18 +180,44 @@ function buildCodexSupportNotConfiguredLines(projectId: string, method: string):
   ];
 }
 
+async function startNewThreadLines(
+  dependencies: ChatCommandServiceDependencies,
+  projectId: string,
+): Promise<string[]> {
+  if (dependencies.projectRegistry.startThread === undefined) {
+    return buildCodexSupportNotConfiguredLines(projectId, 'thread/start');
+  }
+
+  const projectConfig = dependencies.projectRegistry.getProjectConfig?.(projectId);
+  const threadId = await dependencies.projectRegistry.startThread(projectId, {
+    cwd: projectConfig?.cwd ?? undefined,
+    force: true,
+  });
+
+  return [`[codex-bridge] started new thread ${threadId} for this chat`];
+}
+
 function resolveCodexCommand(
   command: string,
   args: string[],
-): { kind: 'supported'; method: StructuredCodexCommandExecutionInput['method']; params: Record<string, unknown>; legacyArgs: string[] } | { kind: 'unsupported'; raw: string } | { kind: 'usage'; lines: string[] } {
+): { kind: 'supported'; method: SupportedCodexMethod; params: Record<string, unknown>; legacyArgs: string[] } | { kind: 'unsupported'; raw: string } | { kind: 'usage'; lines: string[] } {
   const normalizedCommand = command.toLowerCase();
-  if (!SUPPORTED_CODEX_METHODS.has(normalizedCommand as StructuredCodexCommandExecutionInput['method'])) {
+  if (!SUPPORTED_CODEX_METHODS.has(normalizedCommand as SupportedCodexMethod)) {
     return { kind: 'unsupported', raw: command };
   }
 
-  if (normalizedCommand === 'app/list' || normalizedCommand === 'session/list' || normalizedCommand === 'thread/list') {
+  if (normalizedCommand === 'app/list' || normalizedCommand === 'session/list' || normalizedCommand === 'thread/list' || normalizedCommand === 'thread/start') {
     if (args.length > 0) {
       return { kind: 'usage', lines: [`Usage: ${normalizedCommand}`] };
+    }
+
+    if (normalizedCommand === 'thread/start') {
+      return {
+        kind: 'supported',
+        method: 'thread/start',
+        params: {},
+        legacyArgs: [],
+      };
     }
 
     return {
@@ -198,6 +237,7 @@ function resolveCodexCommand(
     method: 'thread/read',
     params: {
       id: args[0],
+      threadId: args[0],
     },
     legacyArgs: args.slice(0, 1),
   };
@@ -253,6 +293,15 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
               `  senderId: ${input.senderId}`,
               `  projectId: ${projectId}`,
             ];
+          }
+
+          case 'new': {
+            const projectId = await dependencies.bindingService.getProjectBySession(input.sessionId);
+            if (projectId === null) {
+              return formatNotBoundMessage();
+            }
+
+            return await startNewThreadLines(dependencies, projectId);
           }
 
           case 'sessions':
@@ -325,6 +374,10 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
       }
 
       const projectConfig = dependencies.projectRegistry.getProjectConfig?.(projectId);
+      if (resolved.method === 'thread/start') {
+        return await startNewThreadLines(dependencies, projectId);
+      }
+
       const params =
         resolved.method === 'thread/list' && projectConfig?.cwd !== undefined
           ? { ...resolved.params, cwd: projectConfig.cwd }

@@ -35,6 +35,7 @@ test('implements LarkTransport interface', () => {
 
   assert.equal(typeof transport.onEvent, 'function');
   assert.equal(typeof transport.sendMessage, 'function');
+  assert.equal(typeof transport.sendCard, 'function');
   assert.equal(typeof transport.sendReaction, 'function');
   assert.equal(typeof transport.start, 'function');
   assert.equal(typeof transport.stop, 'function');
@@ -157,6 +158,90 @@ test('sends markdown messages as feishu post content', async () => {
       },
     }),
   );
+});
+
+test('sends interactive cards through sendMessageFn', async () => {
+  registeredHandlers = {};
+  let sentMsgType: string | null = null;
+  let sentContent: string | null = null;
+
+  const transport = createFeishuWebSocketTransport({
+    appId: 'cli_test',
+    appSecret: 'secret',
+    wsClient: mockWsClient as never,
+    eventDispatcher: mockEventDispatcher as never,
+    sendMessageFn: async (opts) => {
+      sentMsgType = opts.msgType;
+      sentContent = String(opts.content);
+    },
+    sendReactionFn: mockSendReaction as never,
+    onSendCard: () => {},
+  });
+
+  await transport.sendCard({
+    sessionId: 'chat_abc',
+    card: {
+      msg_type: 'interactive',
+      content: JSON.stringify({
+        header: {
+          template: 'blue',
+          title: { tag: 'plain_text', content: 'project-a' },
+        },
+      }),
+    },
+  });
+
+  assert.equal(sentMsgType, 'interactive');
+  assert.deepEqual(JSON.parse(sentContent ?? '{}'), {
+    header: {
+      template: 'blue',
+      title: { tag: 'plain_text', content: 'project-a' },
+    },
+  });
+});
+
+test('routes card action triggers as inbound messages with command text', async () => {
+  registeredHandlers = {};
+  const receivedEvents: LarkEventPayload[] = [];
+
+  const transport = createFeishuWebSocketTransport({
+    appId: 'cli_test',
+    appSecret: 'secret',
+    wsClient: mockWsClient as never,
+    eventDispatcher: mockEventDispatcher as never,
+    sendMessageFn: mockSendMessage as never,
+    sendReactionFn: mockSendReaction as never,
+  });
+
+  transport.onEvent((event) => {
+    receivedEvents.push(event);
+  });
+
+  await transport.start();
+  await registeredHandlers['card.action.trigger']({
+    chat_id: 'chat_abc',
+    message_id: 'msg_approval',
+    sender: {
+      sender_id: {
+        open_id: 'user_xyz',
+      },
+    },
+    action: {
+      value: {
+        command: '//approve 42',
+      },
+    },
+  });
+
+  assert.deepEqual(receivedEvents, [
+    {
+      sessionId: 'chat_abc',
+      messageId: 'msg_approval',
+      text: '//approve 42',
+      senderId: 'user_xyz',
+      timestamp: receivedEvents[0]?.timestamp ?? '',
+    },
+  ]);
 });
 
 test('sends reactions via sendReactionFn with message id and emoji type', async () => {

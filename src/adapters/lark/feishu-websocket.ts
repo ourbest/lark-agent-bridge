@@ -1,5 +1,12 @@
 import type { LarkEventPayload, LarkTransport } from './adapter.ts';
 import { buildFeishuPostMessage, isMarkdown } from './md-to-feishu.ts';
+import {
+  extractCardActionCommand,
+  extractCardActionMessageId,
+  extractCardActionSenderId,
+  extractCardActionSessionId,
+  type FeishuInteractiveCardMessage,
+} from './cards.ts';
 
 export interface FeishuWebSocketTransportOptions {
   appId: string;
@@ -22,6 +29,7 @@ export interface FeishuWebSocketTransportOptions {
   }) => Promise<void>;
   onStderr?: (text: string) => void;
   onSend?: (message: { sessionId: string; text: string }) => void;
+  onSendCard?: (message: { sessionId: string; card: FeishuInteractiveCardMessage; fallbackText?: string }) => void;
   onReact?: (message: { targetMessageId: string; emojiType: string }) => void;
 }
 
@@ -115,6 +123,26 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
 
         void eventHandler?.(event);
       },
+      async 'card.action.trigger'(data: unknown) {
+        const command = extractCardActionCommand(data);
+        const sessionId = extractCardActionSessionId(data);
+        const messageId = extractCardActionMessageId(data) ?? 'card-action';
+        const senderId = extractCardActionSenderId(data) ?? '';
+
+        if (command === null || sessionId === null) {
+          return;
+        }
+
+        const event: LarkEventPayload = {
+          sessionId,
+          messageId,
+          text: command,
+          senderId,
+          timestamp: new Date().toISOString(),
+        };
+
+        void eventHandler?.(event);
+      },
     });
 
     await options.wsClient.start({ eventDispatcher: options.eventDispatcher });
@@ -153,6 +181,17 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
           receiveId: message.sessionId,
           msgType: payload.msg_type,
           content: payload.content,
+        });
+      });
+    },
+    async sendCard(message) {
+      enqueueMessage(message.sessionId, async () => {
+        options.onSendCard?.(message);
+        console.log(`[feishu] sending interactive, session=${message.sessionId}`);
+        await options.sendMessageFn({
+          receiveId: message.sessionId,
+          msgType: 'interactive',
+          content: message.card.content,
         });
       });
     },

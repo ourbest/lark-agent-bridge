@@ -22,10 +22,14 @@ test('resolves runtime config from environment overrides', () => {
 
 test('creates a local dev transport that can receive and send messages', async () => {
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string } }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
   const transport = createLocalDevLarkTransport({
     onSend(message) {
       sentMessages.push(message);
+    },
+    onSendCard(message) {
+      sentCards.push(message);
     },
     onReact(message) {
       reactions.push(message);
@@ -44,6 +48,13 @@ test('creates a local dev transport that can receive and send messages', async (
     sessionId: 'session-a',
     text: 'reply:hello',
   });
+  await transport.sendCard({
+    sessionId: 'session-a',
+    card: {
+      msg_type: 'interactive',
+      content: JSON.stringify({ header: { title: { tag: 'plain_text', content: 'work' } } }),
+    },
+  });
   await transport.sendReaction({
     targetMessageId: 'message-1',
     emojiType: 'THUMBSUP',
@@ -61,6 +72,16 @@ test('creates a local dev transport that can receive and send messages', async (
     {
       sessionId: 'session-a',
       text: 'reply:hello',
+    },
+  ]);
+  assert.deepEqual(sentCards, [
+    {
+      sessionId: 'session-a',
+      card: {
+        msg_type: 'interactive',
+        content: JSON.stringify({ header: { title: { tag: 'plain_text', content: 'work' } } }),
+      },
+      fallbackText: undefined,
     },
   ]);
   assert.deepEqual(reactions, [

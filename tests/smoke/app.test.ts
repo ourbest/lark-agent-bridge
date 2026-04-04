@@ -12,6 +12,7 @@ import { createProjectRegistry } from '../../src/runtime/project-registry.ts';
 
 test('boots the bridge runtime and forwards a routed reply back to lark', async () => {
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string } }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
@@ -21,6 +22,9 @@ test('boots the bridge runtime and forwards a routed reply back to lark', async 
     },
     async sendMessage(message) {
       sentMessages.push(message);
+    },
+    async sendCard(message) {
+      sentCards.push(message);
     },
     async sendReaction(message) {
       reactions.push(message);
@@ -68,12 +72,28 @@ test('boots the bridge runtime and forwards a routed reply back to lark', async 
       emojiType: 'THUMBSUP',
     },
   ]);
-  assert.deepEqual(sentMessages, [
-    {
-      sessionId: 'session-a',
-      text: 'reply:hello',
+  assert.deepEqual(sentMessages, []);
+  assert.equal(sentCards.length, 1);
+  assert.deepEqual(sentCards[0], {
+    sessionId: 'session-a',
+    card: {
+      msg_type: 'interactive',
+      content: sentCards[0]?.card.content ?? '',
     },
-  ]);
+    fallbackText: 'reply:hello',
+  });
+  const card = JSON.parse(sentCards[0].card.content) as {
+    header?: { title?: { content?: string }; subtitle?: { content?: string } };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(card.header?.title?.content, 'project-a');
+  assert.equal(card.header?.subtitle, undefined);
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown'));
+  const footer = card.body?.elements?.find((element) => element.tag === 'markdown' && typeof element.content === 'string' && element.content.includes('PATH'));
+  assert.ok(footer);
+  assert.match(JSON.stringify(footer), /PATH/);
+  assert.match(JSON.stringify(footer), /Transport/);
+  assert.deepEqual(sentMessages, []);
 
   await app.stop();
   assert.equal(app.ready, false);
@@ -147,6 +167,149 @@ test('handles //sessions using the supplied project registry', async () => {
       ].join('\n'),
     },
   ]);
+
+  await app.stop();
+});
+
+test('renders //help as an interactive card for easier reading', async () => {
+  const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+
+  const transport: LarkTransport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    async sendMessage(message) {
+      sentMessages.push(message);
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+    },
+    async sendReaction(message) {
+      reactions.push(message);
+    },
+  };
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: false,
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+    },
+  });
+
+  await app.start();
+  assert.ok(eventHandler);
+
+  await eventHandler!({
+    sessionId: 'session-help',
+    messageId: 'message-help',
+    text: '//help',
+    senderId: 'user-help',
+    timestamp: '2026-03-29T00:00:00.000Z',
+  });
+
+  assert.deepEqual(reactions, [
+    {
+      targetMessageId: 'message-help',
+      emojiType: 'THUMBSUP',
+    },
+  ]);
+  assert.deepEqual(sentMessages, []);
+  assert.equal(sentCards.length, 1);
+  assert.equal(sentCards[0]?.sessionId, 'session-help');
+  assert.equal(sentCards[0]?.card.msg_type, 'interactive');
+  assert.match(sentCards[0]?.fallbackText ?? '', /\[codex-bridge\] commands:/);
+
+  const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
+    header?: { title?: { content?: string } };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(card.header?.title?.content, 'codex-bridge help');
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('thread/start')));
+
+  await app.stop();
+});
+
+test('renders unbound guidance as an interactive card', async () => {
+  const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+
+  const transport: LarkTransport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    async sendMessage(message) {
+      sentMessages.push(message);
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+    },
+    async sendReaction(message) {
+      reactions.push(message);
+    },
+  };
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: false,
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+    },
+  });
+
+  await app.start();
+  assert.ok(eventHandler);
+
+  await eventHandler!({
+    sessionId: 'session-unbound',
+    messageId: 'message-unbound',
+    text: 'hello there',
+    senderId: 'user-unbound',
+    timestamp: '2026-03-29T00:00:00.000Z',
+  });
+
+  assert.deepEqual(reactions, [
+    {
+      targetMessageId: 'message-unbound',
+      emojiType: 'THUMBSUP',
+    },
+  ]);
+  assert.deepEqual(sentMessages, []);
+  assert.equal(sentCards.length, 1);
+  assert.equal(sentCards[0]?.sessionId, 'session-unbound');
+  assert.equal(sentCards[0]?.card.msg_type, 'interactive');
+  assert.match(sentCards[0]?.fallbackText ?? '', /unbound session/);
+  assert.match(sentCards[0]?.fallbackText ?? '', /\/\/bind <projectId>/);
+
+  const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
+    header?: { title?: { content?: string } };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(card.header?.title?.content, 'codex-bridge');
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('not bound')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind <projectId>')));
 
   await app.stop();
 });

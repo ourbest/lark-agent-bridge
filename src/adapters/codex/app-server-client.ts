@@ -14,6 +14,7 @@ export interface CodexGenerateReplyInput {
 
 export interface CodexStartThreadInput {
   cwd?: string;
+  force?: boolean;
 }
 
 export interface CodexResumeThreadInput {
@@ -127,12 +128,12 @@ export class CodexAppServerClient {
   async startThread(input: CodexStartThreadInput): Promise<string> {
     await this.ensureStarted();
 
-    if (this.threadId !== null) {
+    if (this.threadId !== null && input.force !== true) {
       return this.threadId;
     }
 
     const response = await this.sendRequest('thread/start', {
-      approvalPolicy: 'never',
+      approvalPolicy: 'on-request',
       cwd: input.cwd ?? this.options.cwd,
       model: this.options.model ?? 'gpt-5.4-mini',
       sandbox: 'workspace-write',
@@ -250,6 +251,9 @@ export class CodexAppServerClient {
 
     const initialize = this.sendRequest('initialize', {
       clientInfo: this.options.clientInfo,
+      capabilities: {
+        experimentalApi: true,
+      },
     });
     this.sendNotification('initialized', {});
     await initialize;
@@ -261,7 +265,7 @@ export class CodexAppServerClient {
     }
 
     const response = await this.sendRequest('thread/start', {
-      approvalPolicy: 'never',
+      approvalPolicy: 'on-request',
       cwd,
       model: this.options.model ?? 'gpt-5.4',
       sandbox: 'workspace-write',

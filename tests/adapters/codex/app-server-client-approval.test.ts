@@ -109,6 +109,9 @@ test('surfaces app-server approval requests and can respond to them', async () =
             title: 'Bridge Test',
             version: '0.1.0',
           },
+          capabilities: {
+            experimentalApi: true,
+          },
         },
       },
       {
@@ -119,7 +122,7 @@ test('surfaces app-server approval requests and can respond to them', async () =
         id: 1,
         method: 'thread/start',
         params: {
-          approvalPolicy: 'never',
+          approvalPolicy: 'on-request',
           model: 'gpt-5.4',
           sandbox: 'workspace-write',
           serviceName: 'codex-bridge',

@@ -1,3 +1,5 @@
+import { buildApprovalCard, type FeishuInteractiveCardMessage } from '../adapters/lark/cards.ts';
+
 type ApprovalKind = 'commandExecution' | 'fileChange' | 'permissions';
 
 type ApprovalCommand = 'approve' | 'approve-all' | 'deny' | 'approvals';
@@ -23,7 +25,7 @@ export interface ApprovalRequestInput {
 }
 
 export interface ApprovalService {
-  registerRequest(input: ApprovalRequestInput): Promise<{ lines: string[] }>;
+  registerRequest(input: ApprovalRequestInput): Promise<{ lines: string[]; card: FeishuInteractiveCardMessage }>;
   handleCommand(input: { sessionId: string; text: string }): Promise<string[] | null>;
 }
 
@@ -173,7 +175,7 @@ export function createApprovalService(): ApprovalService {
   const pendingRequests = new Map<string, PendingRequest>();
 
   return {
-    async registerRequest(input: ApprovalRequestInput): Promise<{ lines: string[] }> {
+    async registerRequest(input: ApprovalRequestInput): Promise<{ lines: string[]; card: FeishuInteractiveCardMessage }> {
       const request: PendingRequest = {
         ...input,
         createdAt: Date.now(),
@@ -181,6 +183,18 @@ export function createApprovalService(): ApprovalService {
       pendingRequests.set(String(input.requestId), request);
       return {
         lines: buildAnnouncementLines(request),
+        card: buildApprovalCard({
+          title: 'Approval required',
+          subtitle: `${describeRequestKind(request.kind)} | ${request.projectInstanceId}`,
+          bodyMarkdown: buildApprovalCardBody(request),
+          footerItems: [
+            { label: 'Chat', value: request.sessionId },
+            { label: 'Thread', value: request.threadId },
+            { label: 'Turn', value: request.turnId },
+            { label: 'Request', value: String(request.requestId) },
+          ],
+          buttons: buildApprovalButtons(request),
+        }),
       };
     },
 
@@ -231,4 +245,69 @@ export function createApprovalService(): ApprovalService {
       return [`[codex-bridge] approved request ${parsed.requestId}`];
     },
   };
+}
+
+function buildApprovalCardBody(request: PendingRequest): string {
+  const lines = [
+    `**Kind:** ${describeRequestKind(request.kind)}`,
+    `**Project:** ${request.projectInstanceId}`,
+    `**Chat:** ${request.sessionId}`,
+    `**Thread:** ${request.threadId}`,
+    `**Turn:** ${request.turnId}`,
+    `**Item:** ${request.itemId}`,
+  ];
+
+  if (request.command !== undefined && request.command !== null) {
+    lines.push(`**Command:** \`${request.command}\``);
+  }
+
+  if (request.cwd !== undefined && request.cwd !== null) {
+    lines.push(`**CWD:** \`${request.cwd}\``);
+  }
+
+  if (request.grantRoot !== undefined && request.grantRoot !== null) {
+    lines.push(`**Grant Root:** \`${request.grantRoot}\``);
+  }
+
+  if (request.reason !== undefined && request.reason !== null && request.reason.trim() !== '') {
+    lines.push(`**Reason:** ${request.reason}`);
+  }
+
+  if (request.kind === 'permissions') {
+    const permissions = request.permissions ?? {};
+    const fileSystem = permissions.fileSystem ?? null;
+    const network = permissions.network ?? null;
+    if (fileSystem !== null) {
+      if (fileSystem.read !== undefined && fileSystem.read !== null) {
+        lines.push(`**FS Read:** ${fileSystem.read.length === 0 ? '[]' : fileSystem.read.join(', ')}`);
+      }
+      if (fileSystem.write !== undefined && fileSystem.write !== null) {
+        lines.push(`**FS Write:** ${fileSystem.write.length === 0 ? '[]' : fileSystem.write.join(', ')}`);
+      }
+    }
+    if (network !== null && network.enabled !== undefined && network.enabled !== null) {
+      lines.push(`**Network:** ${formatYesNo(network.enabled)}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function buildApprovalButtons(request: PendingRequest): Array<{ label: string; command: string; type?: 'default' | 'primary' | 'danger' }> {
+  return [
+    {
+      label: 'Approve',
+      command: `//approve ${request.requestId}`,
+      type: 'primary',
+    },
+    {
+      label: 'Approve all',
+      command: `//approve-all ${request.requestId}`,
+    },
+    {
+      label: 'Deny',
+      command: `//deny ${request.requestId}`,
+      type: 'danger',
+    },
+  ];
 }

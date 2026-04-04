@@ -177,6 +177,79 @@ test('resumes the last thread for the bound chat', async () => {
   ]);
 });
 
+test('starts a fresh thread for //new and thread/start on the bound chat', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async startThread() {
+        return 'thr_unused';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    projectInstanceId: string;
+    options?: { cwd?: string; force?: boolean };
+  }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      getProjectConfig(projectInstanceId: string) {
+        return projectInstanceId === 'project-a'
+          ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+          : null;
+      },
+      async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
+        calls.push({ projectInstanceId, options });
+        return calls.length === 1 ? 'thr_new_1' : 'thr_new_2';
+      },
+    },
+  });
+
+  const newLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//new',
+  });
+
+  const threadStartLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'thread/start',
+  });
+
+  assert.deepEqual(newLines, ['[codex-bridge] started new thread thr_new_1 for this chat']);
+  assert.deepEqual(threadStartLines, ['[codex-bridge] started new thread thr_new_2 for this chat']);
+  assert.deepEqual(calls, [
+    {
+      projectInstanceId: 'project-a',
+      options: {
+        cwd: '/repo/project-a',
+        force: true,
+      },
+    },
+    {
+      projectInstanceId: 'project-a',
+      options: {
+        cwd: '/repo/project-a',
+        force: true,
+      },
+    },
+  ]);
+});
+
 test('returns bridge and codex state for //sessions on a bound chat', async () => {
   const bindingService = createBindingService();
   const registry = createProjectRegistry({
@@ -392,6 +465,7 @@ test('routes a whitelisted structured codex command through the executor', async
       method: 'thread/read',
       params: {
         id: 'chat-a',
+        threadId: 'chat-a',
       },
     },
   ]);
@@ -552,6 +626,7 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
+    '  //new               - start a new codex thread for this chat',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
@@ -564,6 +639,7 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ]);
 });
@@ -597,6 +673,7 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
+    '  //new               - start a new codex thread for this chat',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
@@ -609,6 +686,7 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ]);
 });

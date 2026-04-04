@@ -17,6 +17,7 @@ import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts'
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
 import { formatCodexCommandResult } from './runtime/codex-command-formatting.ts';
 import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
+import { buildStartupNotificationCard } from './adapters/lark/cards.ts';
 import { JsonBindingStore } from './storage/json-binding-store.ts';
 import { createApprovalService } from './runtime/approval-service.ts';
 import { defaultHttpInstance, LoggerLevel, WSClient, EventDispatcher, Client } from '@larksuiteoapi/node-sdk';
@@ -30,12 +31,15 @@ export async function run(): Promise<void> {
   const feishuRuntime = resolveFeishuRuntimeConfig();
   const approvalService = createApprovalService();
   const bridgeStore = new JsonBindingStore(storagePath);
+  const latestInboundMessageIdBySession = new Map<string, string>();
+  const lastStatusBySession = new Map<string, string>();
   let projectRegistryImpl: ReturnType<typeof createProjectRegistry> | null = null;
   let projectConfigWatcher: ReturnType<typeof createProjectConfigWatcher> | null = null;
   let reloadProjectsHandler: (() => Promise<string[]>) | null = null;
   let projectConfigEntries: ProjectConfigEntry[] = loadProjectsFromFile(projectsFilePath) ?? [];
+  let app: ReturnType<typeof createBridgeApp> | null = null;
 
-  const { transport, sendToOpenId } = feishuRuntime !== null && feishuRuntime.wsEnabled
+  const { transport, sendToOpenId, sendCardToOpenId } = feishuRuntime !== null && feishuRuntime.wsEnabled
     ? await createFeishuWebSocketTransportFromRuntime(feishuRuntime)
     : { transport: createLocalDevLarkTransport({
         onSend(message) {
@@ -44,13 +48,16 @@ export async function run(): Promise<void> {
         onReact(message) {
           console.log(`[codex-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`);
         },
-      }), sendToOpenId: null };
+      }), sendToOpenId: null, sendCardToOpenId: null };
 
-  const app = createBridgeApp({
+  app = createBridgeApp({
     config,
     larkTransport: transport,
     bindingStore: bridgeStore,
     approvalService,
+    onInboundMessage: (message) => {
+      latestInboundMessageIdBySession.set(message.sessionId, message.messageId);
+    },
     projectRegistry: {
       async describeProject(projectInstanceId: string) {
         if (projectRegistryImpl === null) {
@@ -61,6 +68,12 @@ export async function run(): Promise<void> {
       getProjectConfig(projectInstanceId: string) {
         const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
         return entry ?? null;
+      },
+      async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
+        if (projectRegistryImpl === null) {
+          throw new Error('project registry is not initialized');
+        }
+        return await projectRegistryImpl.startThread(projectInstanceId, options);
       },
     },
     reloadProjects: async () => {
@@ -83,6 +96,47 @@ export async function run(): Promise<void> {
       return formatCodexCommandResult(input.method, result);
     },
   });
+
+  async function reactToSessionStatus(sessionId: string, status: 'working' | 'waiting_approval' | 'done' | 'failed'): Promise<void> {
+    if (app === null) {
+      return;
+    }
+
+    const previousStatus = lastStatusBySession.get(sessionId);
+    if (previousStatus === status) {
+      return;
+    }
+    lastStatusBySession.set(sessionId, status);
+
+    const messageId = latestInboundMessageIdBySession.get(sessionId);
+    if (messageId === undefined) {
+      return;
+    }
+
+    const emojiType =
+      status === 'working'
+        ? 'Typing'
+        : status === 'waiting_approval'
+          ? 'Alarm'
+          : status === 'done'
+            ? 'DONE'
+            : 'ERROR';
+
+    await app.larkAdapter.react({
+      targetMessageId: messageId,
+      emojiType,
+    });
+  }
+
+  const restoreBoundProjects = async () => {
+    if (projectRegistryImpl === null) {
+      return;
+    }
+
+    for (const binding of await app.bindingService.getAllBindings()) {
+      await projectRegistryImpl.restoreBinding(binding.projectInstanceId, binding.sessionId);
+    }
+  };
 
   if (consoleRuntime !== null) {
     const project = codexRuntimes.find((entry) => entry.projectInstanceId === consoleRuntime.projectInstanceId) ?? {
@@ -202,6 +256,8 @@ export async function run(): Promise<void> {
         return;
       }
 
+      await reactToSessionStatus(sessionId, 'waiting_approval');
+
       const announcement = await approvalService.registerRequest({
         requestId: request.id,
         projectInstanceId,
@@ -231,12 +287,21 @@ export async function run(): Promise<void> {
         },
       });
 
-      await app.larkAdapter.send({
+      await app.larkAdapter.sendCard({
         targetSessionId: sessionId,
-        text: announcement.lines.join('\n'),
+        card: announcement.card,
+        fallbackText: announcement.lines.join('\n'),
       });
     },
     router: app.router,
+    onStatusChange: async ({ projectInstanceId, status }) => {
+      const sessionId = await app.bindingService.getSessionByProject(projectInstanceId);
+      if (sessionId === null) {
+        return;
+      }
+
+      await reactToSessionStatus(sessionId, status);
+    },
   });
 
   app.bindingService.onBindingChange(async (e) => {
@@ -251,13 +316,7 @@ export async function run(): Promise<void> {
         return;
       }
       await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
-      for (const binding of await app.bindingService.getAllBindings()) {
-        await projectRegistryImpl.onBindingChanged({
-          type: 'bound',
-          projectId: binding.projectInstanceId,
-          sessionId: binding.sessionId,
-        });
-      }
+      await restoreBoundProjects();
     },
   });
   reloadProjectsHandler = async () => {
@@ -275,13 +334,17 @@ export async function run(): Promise<void> {
   console.log(`[codex-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
 
   await app.start();
+  await restoreBoundProjects();
   await projectConfigWatcher.start();
 
   // Send startup notification to specified openId
   const startupNotifyOpenId = process.env.BRIDGE_STARTUP_NOTIFY_OPENID;
   if (sendToOpenId && startupNotifyOpenId) {
     try {
-      await sendToOpenId(startupNotifyOpenId, '[codex-bridge] 已上线');
+      await sendCardToOpenId(startupNotifyOpenId, buildStartupNotificationCard({
+        title: 'codex-bridge',
+        bodyMarkdown: '[codex-bridge] 已上线',
+      }));
       console.log(`[codex-bridge] startup notification sent to ${startupNotifyOpenId}`);
     } catch (err) {
       console.warn(`[codex-bridge] failed to send startup notification:`, err);
@@ -406,7 +469,20 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
     });
   }
 
-  return { transport, sendToOpenId };
+  async function sendCardToOpenId(openId: string, card: { msg_type: 'interactive'; content: string }) {
+    await restClient.im.v1.message.create({
+      data: {
+        receive_id: openId,
+        msg_type: card.msg_type,
+        content: card.content,
+      },
+      params: {
+        receive_id_type: 'open_id',
+      },
+    });
+  }
+
+  return { transport, sendToOpenId, sendCardToOpenId };
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

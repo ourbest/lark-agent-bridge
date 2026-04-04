@@ -12,6 +12,7 @@ import type { BindingStore } from './storage/binding-store.ts';
 import type { ProjectState } from './runtime/project-registry.ts';
 import type { ApprovalService } from './runtime/approval-service.ts';
 import type { ProjectConfig } from './runtime/project-registry.ts';
+import { buildHelpCard, buildProjectReplyCard, buildUnboundCard } from './adapters/lark/cards.ts';
 
 const BUSY_REACTION_EMOJI_TYPE = 'THUMBSUP';
 
@@ -28,14 +29,45 @@ export interface BridgeRuntime {
 
 type MessageHandler = (message: { sessionId: string; text: string; senderId: string }) => Promise<void>;
 
+const HELP_CARD_BRIDGE_COMMANDS = [
+  { command: '//bind <projectId>', description: 'Bind this chat to a project.' },
+  { command: '//unbind', description: 'Unbind this chat.' },
+  { command: '//list', description: 'Show the current binding.' },
+  { command: '//new', description: 'Start a fresh Codex thread for this chat.' },
+  { command: '//sessions', description: 'Show bridge and Codex session state.' },
+  { command: '//reload projects', description: 'Reload the projects.json file.' },
+  { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
+  { command: '//approvals', description: 'List pending approval requests.' },
+  { command: '//approve <id>', description: 'Approve a single request.' },
+  { command: '//approve-all <id>', description: 'Approve the request for the whole chat session.' },
+  { command: '//deny <id>', description: 'Deny a pending request.' },
+  { command: '//help', description: 'Show this help card.' },
+] as const;
+
+const HELP_CARD_CODEX_COMMANDS = [
+  { command: 'app/list', description: 'List supported Codex apps.' },
+  { command: 'session/list', description: 'List Codex sessions.' },
+  { command: 'thread/list', description: 'List Codex threads.' },
+  { command: 'session/get <id>', description: 'Inspect a Codex session.' },
+  { command: 'thread/start', description: 'Start a new Codex thread.' },
+  { command: 'thread/read <id>', description: 'Inspect a Codex thread.' },
+] as const;
+
+function isHelpCommand(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized === '//help' || normalized === 'help';
+}
+
 export function createBridgeApp(options: {
   config: BridgeConfig;
   larkTransport: LarkTransport;
   bindingStore?: BindingStore;
+  onInboundMessage?: (message: { sessionId: string; messageId: string; senderId: string; text: string }) => void;
   consoleHandler?: MessageHandler;
   projectRegistry: {
     describeProject(projectInstanceId: string): Promise<ProjectState>;
     getProjectConfig?(projectInstanceId: string): ProjectConfig | null;
+    startThread?(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
   };
   approvalService?: ApprovalService;
   reloadProjects?: () => Promise<string[]>;
@@ -75,11 +107,28 @@ export function createBridgeApp(options: {
   });
 
   larkAdapter.onMessage(async (message) => {
-    // React immediately so the sender sees a busy indicator on the original message.
-    await larkAdapter.react({
-      targetMessageId: message.messageId,
-      emojiType: BUSY_REACTION_EMOJI_TYPE,
+    await handleInboundMessage(message, true);
+  });
+
+  larkAdapter.onCardAction?.(async (message) => {
+    await handleInboundMessage(message, false);
+  });
+
+  async function handleInboundMessage(message: { sessionId: string; text: string; senderId: string; messageId: string }, react: boolean): Promise<void> {
+    options.onInboundMessage?.({
+      sessionId: message.sessionId,
+      messageId: message.messageId,
+      senderId: message.senderId,
+      text: message.text,
     });
+
+    if (react) {
+      // React immediately so the sender sees a busy indicator on the original message.
+      await larkAdapter.react({
+        targetMessageId: message.messageId,
+        emojiType: BUSY_REACTION_EMOJI_TYPE,
+      });
+    }
 
     const text = message.text.trim();
     const commandLines = await chatCommandService.execute({
@@ -89,6 +138,18 @@ export function createBridgeApp(options: {
     });
 
     if (commandLines !== null) {
+      if (isHelpCommand(text)) {
+        await larkAdapter.sendCard({
+          targetSessionId: message.sessionId,
+          card: buildHelpCard({
+            bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
+            codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+          }),
+          fallbackText: commandLines.join('\n'),
+        });
+        return;
+      }
+
       await larkAdapter.send({
         targetSessionId: message.sessionId,
         text: commandLines.join('\n'),
@@ -98,19 +159,50 @@ export function createBridgeApp(options: {
 
     const outboundMessage = await router.routeInboundMessage(message);
     if (outboundMessage !== null) {
-      await larkAdapter.send(outboundMessage);
+      const projectId = await bindingService.getProjectBySession(message.sessionId);
+      if (projectId === null) {
+        return;
+      }
+      const projectConfig = options.projectRegistry.getProjectConfig?.(projectId);
+      await larkAdapter.sendCard({
+        targetSessionId: message.sessionId,
+        card: buildProjectReplyCard({
+          projectTitle: projectConfig?.projectInstanceId ?? projectId,
+          bodyMarkdown: outboundMessage.text,
+          footerItems: [
+            { label: 'PATH', value: projectConfig?.cwd ?? 'n/a' },
+            { label: 'Transport', value: projectConfig?.transport ?? 'n/a' },
+          ],
+        }),
+        fallbackText: outboundMessage.text,
+      });
       return;
     }
 
     // Unbound session — reply with unbound info
     const bound = await bindingService.getProjectBySession(message.sessionId);
+    if (bound === null) {
+      const fallbackText =
+        `[codex-bridge] unbound session. chatId: ${message.sessionId}, openId: ${message.senderId}\n\nCommands:\n  //bind <projectId> - bind this chat to a project\n  //unbind - unbind this chat\n  //list - list all bindings\n  //new - start a new codex thread for this chat\n  //sessions - show bridge and codex state\n  //reload projects - reload projects.json\n  //help - show this help\n  thread/start - start a new codex thread`;
+
+      await larkAdapter.sendCard({
+        targetSessionId: message.sessionId,
+        card: buildUnboundCard({
+          sessionId: message.sessionId,
+          senderId: message.senderId,
+          bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
+          codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+        }),
+        fallbackText,
+      });
+      return;
+    }
+
     await larkAdapter.send({
       targetSessionId: message.sessionId,
-      text: bound === null
-        ? `[codex-bridge] unbound session. chatId: ${message.sessionId}, openId: ${message.senderId}\n\nCommands:\n  //bind <projectId> - bind this chat to a project\n  //unbind - unbind this chat\n  //list - list all bindings\n  //sessions - show bridge and codex state\n  //reload projects - reload projects.json\n  //help - show this help`
-        : `[codex-bridge] project not found for binding: ${message.sessionId}`,
+      text: `[codex-bridge] project not found for binding: ${message.sessionId}`,
     });
-  });
+  }
 
   let ready = false;
 

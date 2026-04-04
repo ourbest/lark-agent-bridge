@@ -15,6 +15,13 @@
       "cwd": "~/xiaoan-source/deploy",
       "serviceName": "xiaoan-deploy",
       "transport": "stdio"
+    }, {
+      "projectInstanceId": "cms-fe",
+      "command": "codex",
+      "args": ["app-server"],
+      "cwd": "/Volumes/Storages/Dropbox/codes/fe/cms-fe",
+      "serviceName": "cms-fe",
+      "transport": "stdio"
     }
   ]
 }

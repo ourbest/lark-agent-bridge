@@ -11,6 +11,7 @@ export interface RuntimeEnv {
 
 export interface LocalDevLarkTransport extends LarkTransport {
   emit(event: LarkEventPayload): void;
+  emitCardAction(event: LarkEventPayload): void;
 }
 
 function parsePort(value: string | undefined): number | undefined {
@@ -48,10 +49,12 @@ export function resolveProjectsFilePath(env: RuntimeEnv = process.env): string {
 
 export function createLocalDevLarkTransport(options?: {
   onSend?: (message: { sessionId: string; text: string }) => void;
+  onSendCard?: (message: { sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }) => void;
   onReact?: (message: { targetMessageId: string; emojiType: string }) => void;
   onEmit?: (event: LarkEventPayload) => void;
 }): LocalDevLarkTransport {
   let eventHandler: ((event: LarkEventPayload) => void | Promise<void>) | null = null;
+  let cardActionHandler: ((event: LarkEventPayload) => void | Promise<void>) | null = null;
 
   return {
     onEvent(handler) {
@@ -60,12 +63,25 @@ export function createLocalDevLarkTransport(options?: {
     async sendMessage(message) {
       options?.onSend?.(message);
     },
+    async sendCard(message) {
+      options?.onSendCard?.({
+        sessionId: message.sessionId,
+        card: message.card,
+        fallbackText: message.fallbackText,
+      });
+    },
     async sendReaction(message) {
       options?.onReact?.(message);
+    },
+    onCardAction(handler) {
+      cardActionHandler = handler;
     },
     emit(event) {
       options?.onEmit?.(event);
       void eventHandler?.(event);
+    },
+    emitCardAction(event) {
+      void cardActionHandler?.(event);
     },
   };
 }

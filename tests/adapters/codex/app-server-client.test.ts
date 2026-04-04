@@ -76,6 +76,9 @@ test('initializes codex app-server, starts a thread, and collects streamed agent
             title: 'Bridge Test',
             version: '0.1.0',
           },
+          capabilities: {
+            experimentalApi: true,
+          },
         },
       },
       {
@@ -86,7 +89,7 @@ test('initializes codex app-server, starts a thread, and collects streamed agent
         id: 1,
         method: 'thread/start',
         params: {
-          approvalPolicy: 'never',
+          approvalPolicy: 'on-request',
           model: 'gpt-5.4',
           sandbox: 'workspace-write',
           serviceName: 'codex-bridge',
@@ -230,6 +233,9 @@ test('executes a structured codex command without starting a turn', async () => 
             title: 'Bridge Test',
             version: '0.1.0',
           },
+          capabilities: {
+            experimentalApi: true,
+          },
         },
       },
       {
@@ -303,6 +309,9 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
             title: 'Bridge Test',
             version: '0.1.0',
           },
+          capabilities: {
+            experimentalApi: true,
+          },
         },
       },
       {
@@ -313,7 +322,109 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
         id: 1,
         method: 'thread/start',
         params: {
-          approvalPolicy: 'never',
+          approvalPolicy: 'on-request',
+          cwd: '/Users/yonghui/git/codex-bridge',
+          model: 'gpt-5.4-mini',
+          sandbox: 'workspace-write',
+          personality: 'friendly',
+          serviceName: 'codex-bridge',
+        },
+      },
+    ],
+  );
+});
+
+test('starts a fresh thread when forced even if one already exists', async () => {
+  const writes: string[] = [];
+  const stdout = new PassThrough();
+  let threadStartCount = 0;
+
+  const client = new CodexAppServerClient({
+    command: 'codex',
+    args: ['app-server'],
+    clientInfo: {
+      name: 'bridge-test',
+      title: 'Bridge Test',
+      version: '0.1.0',
+    },
+    spawnAppServer() {
+      return {
+        stdin: {
+          write(chunk: string) {
+            const text = String(chunk);
+            writes.push(text);
+
+            const payload = JSON.parse(text);
+            if (payload.method === 'initialize') {
+              stdout.write(`${JSON.stringify({ id: payload.id, result: {} })}\n`);
+            } else if (payload.method === 'thread/start') {
+              threadStartCount += 1;
+              stdout.write(`${JSON.stringify({ id: payload.id, result: { thread: { id: threadStartCount === 1 ? 'thr_123' : 'thr_456' } } })}\n`);
+            }
+
+            return true;
+          },
+        },
+        stdout,
+        stderr: new PassThrough(),
+        kill() {
+          return true;
+        },
+        on() {
+          return undefined;
+        },
+      };
+    },
+  });
+
+  const firstThreadId = await client.startThread({
+    cwd: '/Users/yonghui/git/codex-bridge',
+  });
+  const secondThreadId = await client.startThread({
+    cwd: '/Users/yonghui/git/codex-bridge',
+    force: true,
+  });
+
+  assert.equal(firstThreadId, 'thr_123');
+  assert.equal(secondThreadId, 'thr_456');
+  assert.deepEqual(
+    writes.map((entry) => JSON.parse(entry)),
+    [
+      {
+        id: 0,
+        method: 'initialize',
+        params: {
+          clientInfo: {
+            name: 'bridge-test',
+            title: 'Bridge Test',
+            version: '0.1.0',
+          },
+          capabilities: {
+            experimentalApi: true,
+          },
+        },
+      },
+      {
+        method: 'initialized',
+        params: {},
+      },
+      {
+        id: 1,
+        method: 'thread/start',
+        params: {
+          approvalPolicy: 'on-request',
+          cwd: '/Users/yonghui/git/codex-bridge',
+          model: 'gpt-5.4-mini',
+          sandbox: 'workspace-write',
+          personality: 'friendly',
+          serviceName: 'codex-bridge',
+        },
+      },
+      {
+        id: 2,
+        method: 'thread/start',
+        params: {
+          approvalPolicy: 'on-request',
           cwd: '/Users/yonghui/git/codex-bridge',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
@@ -394,6 +505,9 @@ test('resumes an existing thread before generating the next reply', async () => 
             name: 'bridge-test',
             title: 'Bridge Test',
             version: '0.1.0',
+          },
+          capabilities: {
+            experimentalApi: true,
           },
         },
       },

@@ -31,6 +31,119 @@ test('creates connection when first binding is created', async () => {
   assert.deepEqual(startCalls, [{ cwd: '/repo/project-a' }]);
 });
 
+test('maps codex notifications to project status updates', async () => {
+  const statuses: Array<{ projectInstanceId: string; status: 'working' | 'waiting_approval' | 'done' | 'failed' }> = [];
+  let client: CodexProjectClient & {
+    onNotification?: ((message: { method: string; params?: Record<string, unknown> }) => void | Promise<void>) | null;
+  } | null = null;
+
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
+    createClient: () => {
+      client = {
+        generateReply: async ({ text }) => `reply to ${text}`,
+        stop: async () => {},
+      };
+      return client;
+    },
+    onStatusChange: async (input) => {
+      statuses.push(input);
+    },
+  });
+
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+
+  assert.ok(client);
+  await client!.onNotification?.({ method: 'turn/started' });
+  await client!.onNotification?.({ method: 'turn/completed', params: { turn: { status: 'completed' } } });
+  await client!.onNotification?.({ method: 'turn/completed', params: { turn: { status: 'failed' } } });
+
+  assert.deepEqual(statuses, [
+    { projectInstanceId: 'project-a', status: 'working' },
+    { projectInstanceId: 'project-a', status: 'done' },
+    { projectInstanceId: 'project-a', status: 'failed' },
+  ]);
+});
+
+test('restores a persisted binding by resuming the last thread', async () => {
+  const startCalls: Array<{ cwd?: string; force?: boolean }> = [];
+  const resumeCalls: Array<{ threadId: string; cwd?: string }> = [];
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
+    createClient: () => ({
+      generateReply: async ({ text }) => `reply to ${text}`,
+      startThread: async ({ cwd, force }) => {
+        startCalls.push({ cwd, force });
+        return 'thr_new';
+      },
+      resumeThread: async ({ threadId, cwd }) => {
+        resumeCalls.push({ threadId, cwd });
+        return threadId;
+      },
+      stop: async () => {},
+    }),
+    getLastThread: (projectId, sessionId) => projectId === 'project-a' && sessionId === 'chat-1' ? 'thr_previous' : null,
+  });
+
+  await (registry as unknown as { restoreBinding(projectInstanceId: string, sessionId: string): Promise<void> }).restoreBinding(
+    'project-a',
+    'chat-1',
+  );
+
+  assert.deepEqual(resumeCalls, [{ threadId: 'thr_previous', cwd: '/repo/project-a' }]);
+  assert.deepEqual(startCalls, []);
+});
+
+test('falls back to a fresh thread when the saved thread no longer exists', async () => {
+  const startCalls: Array<{ cwd?: string; force?: boolean }> = [];
+  const resumeCalls: Array<{ threadId: string; cwd?: string }> = [];
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
+    createClient: () => ({
+      generateReply: async ({ text }) => `reply to ${text}`,
+      startThread: async ({ cwd, force }) => {
+        startCalls.push({ cwd, force });
+        return 'thr_fresh';
+      },
+      resumeThread: async ({ threadId, cwd }) => {
+        resumeCalls.push({ threadId, cwd });
+        throw new Error(`no rollout found for thread id ${threadId}`);
+      },
+      stop: async () => {},
+    }),
+    getLastThread: (projectId, sessionId) => projectId === 'project-a' && sessionId === 'chat-1' ? 'thr_missing' : null,
+  });
+
+  await registry.restoreBinding('project-a', 'chat-1');
+
+  assert.deepEqual(resumeCalls, [{ threadId: 'thr_missing', cwd: '/repo/project-a' }]);
+  assert.deepEqual(startCalls, [{ cwd: '/repo/project-a', force: true }]);
+});
+
+test('starts a fresh thread on demand for an active project', async () => {
+  const startCalls: Array<{ cwd?: string; force?: boolean }> = [];
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
+    createClient: () => ({
+      generateReply: async ({ text }) => `reply to ${text}`,
+      startThread: async ({ cwd, force }) => {
+        startCalls.push({ cwd, force });
+        return `thr_${startCalls.length}`;
+      },
+      stop: async () => {},
+    }),
+  });
+
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+  const threadId = await registry.startThread('project-a', { cwd: '/repo/project-a', force: true });
+
+  assert.equal(threadId, 'thr_2');
+  assert.deepEqual(startCalls, [
+    { cwd: '/repo/project-a', force: true },
+    { cwd: '/repo/project-a', force: true },
+  ]);
+});
+
 test('does not reconnect if project already connected', async () => {
   const createCount = { count: 0 };
   const registry = createProjectRegistry({

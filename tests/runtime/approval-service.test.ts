@@ -36,6 +36,13 @@ test('registers approval requests and resolves approve-all for command execution
     '  approve all: //approve-all 99',
     '  deny: //deny 99',
   ]);
+  assert.equal(announcement.card.msg_type, 'interactive');
+  const card = JSON.parse(announcement.card.content) as {
+    header?: { title?: { content?: string } };
+    body?: { elements?: Array<{ tag?: string }> };
+  };
+  assert.equal(card.header?.title?.content, 'Approval required');
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'action'));
 
   const lines = await service.handleCommand({
     sessionId: 'chat-a',
@@ -99,6 +106,7 @@ test('denies permissions requests by returning an empty grant', async () => {
     '  approve all: //approve-all perm-1',
     '  deny: //deny perm-1',
   ]);
+  assert.equal(announcement.card.msg_type, 'interactive');
 
   const lines = await service.handleCommand({
     sessionId: 'chat-a',

@@ -16,6 +16,10 @@ export interface ProjectRegistryOptions {
   getProjectConfig: (projectInstanceId: string) => ProjectConfig | null;
   createClient: (projectInstanceId: string, config: ProjectConfig) => CodexProjectClient;
   router?: Pick<BridgeRouter, 'registerProjectHandler'>;
+  onStatusChange?: (input: {
+    projectInstanceId: string;
+    status: 'working' | 'waiting_approval' | 'done' | 'failed';
+  }) => void | Promise<void>;
   onServerRequest?: (input: {
     projectInstanceId: string;
     request: CodexServerRequest;
@@ -26,8 +30,13 @@ export interface ProjectRegistryOptions {
 }
 
 export interface ProjectRegistry {
-  onBindingChanged(event: { type: string; projectId?: string; sessionId?: string }): Promise<void>;
+  onBindingChanged(
+    event: { type: string; projectId?: string; sessionId?: string },
+    options?: { restore?: boolean },
+  ): Promise<void>;
+  restoreBinding(projectInstanceId: string, sessionId: string): Promise<void>;
   reconcileProjectConfigs(projectConfigs: ProjectConfig[]): Promise<void>;
+  startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
   executeCommand(projectInstanceId: string, input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
   resumeThread(projectInstanceId: string, threadId: string): Promise<string>;
   getLastThread(projectInstanceId: string, sessionId: string): Promise<string | null>;
@@ -78,6 +87,29 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
+  function attachStatusHandler(projectId: string, client: CodexProjectClient): void {
+    if (options.onStatusChange === undefined) {
+      return;
+    }
+
+    const previousHandler = client.onNotification ?? null;
+    client.onNotification = (message) => {
+      if (previousHandler !== null) {
+        void previousHandler(message);
+      }
+
+      const status = readProjectStatus(message.method, message.params);
+      if (status === null) {
+        return;
+      }
+
+      void options.onStatusChange?.({
+        projectInstanceId: projectId,
+        status,
+      });
+    };
+  }
+
   function attachThreadChangedHandler(projectId: string, client: CodexProjectClient): void {
     if (options.setLastThread === undefined) {
       return;
@@ -95,12 +127,152 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
+  function createEntry(projectId: string, config: ProjectConfig) {
+    const client = options.createClient(projectId, config);
+    const entry = {
+      client,
+      bindingCount: 0,
+      sessions: new Set<string>(),
+      config,
+    };
+    activeProjects.set(projectId, entry);
+    attachServerRequestHandler(projectId, client);
+    attachStatusHandler(projectId, client);
+    attachThreadChangedHandler(projectId, client);
+
+    if (options.router) {
+      options.router.registerProjectHandler(projectId, async ({ message }) => {
+        try {
+          const text = await client.generateReply({ text: message.text });
+          return { text };
+        } catch {
+          return null;
+        }
+      });
+    }
+
+    return entry;
+  }
+
   async function disconnectProject(projectId: string): Promise<void> {
     const entry = activeProjects.get(projectId);
     if (entry) {
       await entry.client.stop();
       activeProjects.delete(projectId);
     }
+  }
+
+  async function startThreadForEntry(
+    projectId: string,
+    entry: { client: CodexProjectClient; bindingCount: number; sessions: Set<string>; config: ProjectConfig },
+    threadOptions?: { cwd?: string; force?: boolean },
+  ): Promise<string> {
+    if (entry.client.startThread === undefined) {
+      throw new Error(`Project ${projectId} does not support starting threads`);
+    }
+
+    const threadId = await entry.client.startThread({
+      cwd: threadOptions?.cwd ?? entry.config.cwd,
+      force: threadOptions?.force ?? false,
+    });
+
+    if (options.setLastThread !== undefined) {
+      for (const sessionId of entry.sessions) {
+        options.setLastThread(projectId, sessionId, threadId);
+      }
+    }
+
+    return threadId;
+  }
+
+  async function resumeThreadForEntry(
+    projectId: string,
+    entry: { client: CodexProjectClient; bindingCount: number; sessions: Set<string>; config: ProjectConfig },
+    threadId: string,
+  ): Promise<string> {
+    if (entry.client.resumeThread === undefined) {
+      throw new Error(`Project ${projectId} does not support thread resume`);
+    }
+
+    const resumedThreadId = await entry.client.resumeThread({ threadId, cwd: entry.config.cwd });
+
+    if (options.setLastThread !== undefined) {
+      for (const sessionId of entry.sessions) {
+        options.setLastThread(projectId, sessionId, resumedThreadId);
+      }
+    }
+
+    return resumedThreadId;
+  }
+
+  function shouldFallbackToFreshThread(error: unknown): boolean {
+    const message =
+      typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message ?? '')
+        : String(error ?? '');
+    return message.includes('no rollout found for thread id');
+  }
+
+  function readProjectStatus(method: string, params?: Record<string, unknown>): 'working' | 'waiting_approval' | 'done' | 'failed' | null {
+    if (method === 'turn/started') {
+      return 'working';
+    }
+
+    if (
+      method === 'item/commandExecution/requestApproval' ||
+      method === 'item/fileChange/requestApproval' ||
+      method === 'item/permissions/requestApproval'
+    ) {
+      return 'waiting_approval';
+    }
+
+    if (method === 'error') {
+      return 'failed';
+    }
+
+    if (method === 'turn/completed') {
+      const turn = params?.turn;
+      const status =
+        typeof turn === 'object' && turn !== null && 'status' in turn
+          ? String((turn as { status?: unknown }).status ?? '')
+          : typeof params?.status === 'string'
+            ? String(params.status)
+            : '';
+
+      if (status === 'failed' || status === 'interrupted') {
+        return 'failed';
+      }
+
+      if (status === 'completed') {
+        return 'done';
+      }
+    }
+
+    return null;
+  }
+
+  async function ensureActiveEntry(projectId: string): Promise<{
+    entry: { client: CodexProjectClient; bindingCount: number; sessions: Set<string>; config: ProjectConfig };
+    created: boolean;
+  } | null> {
+    const config = options.getProjectConfig(projectId);
+    if (!config) {
+      return null;
+    }
+
+    let entry = activeProjects.get(projectId);
+    let created = false;
+
+    if (!entry) {
+      entry = createEntry(projectId, config);
+      created = true;
+    } else if (JSON.stringify(entry.config) !== JSON.stringify(config)) {
+      await disconnectProject(projectId);
+      entry = createEntry(projectId, config);
+      created = true;
+    }
+
+    return { entry, created };
   }
 
   return {
@@ -112,80 +284,40 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       }
     },
 
-    async onBindingChanged(event: { type: string; projectId?: string; sessionId?: string }) {
+    async onBindingChanged(
+      event: { type: string; projectId?: string; sessionId?: string },
+      bindingOptions?: { restore?: boolean },
+    ) {
       if (event.type === 'bound' && event.projectId && event.sessionId) {
-        const config = options.getProjectConfig(event.projectId);
-        let entry = activeProjects.get(event.projectId);
-        let shouldStartThread = false;
-
-        if (!entry) {
-          if (!config) return;
-
-          const client = options.createClient(event.projectId, config);
-          entry = {
-            client,
-            bindingCount: 0,
-            sessions: new Set(),
-            config,
-          };
-          activeProjects.set(event.projectId, entry);
-          attachServerRequestHandler(event.projectId, client);
-          attachThreadChangedHandler(event.projectId, client);
-          shouldStartThread = true;
-
-          if (options.router) {
-            options.router.registerProjectHandler(event.projectId, async ({ message }) => {
-              try {
-                const text = await client.generateReply({ text: message.text });
-                return { text };
-              } catch {
-                return null;
-              }
-            });
-          }
-        } else if (config && JSON.stringify(entry.config) !== JSON.stringify(config)) {
-          await disconnectProject(event.projectId);
-          entry = undefined;
-          shouldStartThread = true;
-        } else if (!config && !entry.sessions.has(event.sessionId)) {
+        const prepared = await ensureActiveEntry(event.projectId);
+        if (!prepared) {
           return;
         }
 
-        if (!entry) {
-          const refreshedConfig = options.getProjectConfig(event.projectId);
-          if (!refreshedConfig) return;
-
-          const client = options.createClient(event.projectId, refreshedConfig);
-          entry = {
-            client,
-            bindingCount: 0,
-            sessions: new Set(),
-            config: refreshedConfig,
-          };
-          activeProjects.set(event.projectId, entry);
-          attachServerRequestHandler(event.projectId, client);
-          attachThreadChangedHandler(event.projectId, client);
-          shouldStartThread = true;
-
-          if (options.router) {
-            options.router.registerProjectHandler(event.projectId, async ({ message }) => {
-              try {
-                const text = await client.generateReply({ text: message.text });
-                return { text };
-              } catch {
-                return null;
-              }
-            });
-          }
-        }
-
+        const { entry, created } = prepared;
         markProjectKnown(event.projectId);
         const isNewSession = !entry.sessions.has(event.sessionId);
         entry.sessions.add(event.sessionId);
         entry.bindingCount = entry.sessions.size;
 
-        if ((shouldStartThread || isNewSession) && entry.client.startThread !== undefined) {
-          await entry.client.startThread({ cwd: entry.config.cwd });
+        if (bindingOptions?.restore === true && isNewSession) {
+          if (options.getLastThread !== undefined) {
+            const lastThread = options.getLastThread(event.projectId, event.sessionId);
+            if (lastThread !== null && entry.client.resumeThread !== undefined) {
+              try {
+                await resumeThreadForEntry(event.projectId, entry, lastThread);
+                return;
+              } catch (error) {
+                if (!shouldFallbackToFreshThread(error)) {
+                  throw error;
+                }
+              }
+            }
+          }
+        }
+
+        if ((created || isNewSession) && entry.client.startThread !== undefined) {
+          await startThreadForEntry(event.projectId, entry, { cwd: entry.config.cwd, force: true });
         }
       }
 
@@ -218,6 +350,19 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           entry.bindingCount = entry.sessions.size;
         }
       }
+    },
+
+    async restoreBinding(projectInstanceId: string, sessionId: string): Promise<void> {
+      await this.onBindingChanged({ type: 'bound', projectId: projectInstanceId, sessionId }, { restore: true });
+    },
+
+    async startThread(projectInstanceId: string, threadOptions?: { cwd?: string; force?: boolean }): Promise<string> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry) {
+        throw new Error(`Project ${projectInstanceId} is not active`);
+      }
+
+      return await startThreadForEntry(projectInstanceId, entry, threadOptions);
     },
 
     getHandler(projectInstanceId) {
