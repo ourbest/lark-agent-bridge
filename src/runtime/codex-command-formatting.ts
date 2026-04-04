@@ -6,7 +6,7 @@ type UnknownRecord = Record<string, unknown>;
 export function formatCodexCommandResult(method: string, result: unknown): string[] {
   const list = readList(result);
   if (list !== null) {
-    return formatList(method, list);
+    return formatList(method, list, method === 'thread/list' ? null : MAX_ITEMS);
   }
 
   if (isRecord(result)) {
@@ -16,7 +16,7 @@ export function formatCodexCommandResult(method: string, result: unknown): strin
   return [`[codex-bridge] ${method}: ${formatScalar(result)}`];
 }
 
-function formatList(method: string, items: unknown[]): string[] {
+function formatList(method: string, items: unknown[], maxItems: number | null): string[] {
   const lines = [`[codex-bridge] ${method}: ${items.length} item(s)`];
 
   if (items.length === 0) {
@@ -24,7 +24,8 @@ function formatList(method: string, items: unknown[]): string[] {
     return lines;
   }
 
-  for (const [index, item] of items.slice(0, MAX_ITEMS).entries()) {
+  const displayedItems = maxItems === null ? items : items.slice(0, maxItems);
+  for (const [index, item] of displayedItems.entries()) {
     if (!isRecord(item)) {
       lines.push(`${index + 1}. ${formatScalar(item)}`);
       continue;
@@ -35,8 +36,8 @@ function formatList(method: string, items: unknown[]): string[] {
     lines.push(...formatSummaryFields(item, '   '));
   }
 
-  if (items.length > MAX_ITEMS) {
-    lines.push(`... ${items.length - MAX_ITEMS} more item(s)`);
+  if (maxItems !== null && items.length > maxItems) {
+    lines.push(`... ${items.length - maxItems} more item(s)`);
   }
 
   return lines;

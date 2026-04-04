@@ -75,7 +75,7 @@ function buildHelpLines(): string[] {
     '  //list              - show current binding',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
-    '  //resume <id|last>  - resume a codex thread',
+    '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',

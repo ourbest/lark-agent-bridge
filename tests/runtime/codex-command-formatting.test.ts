@@ -52,6 +52,21 @@ test('formats thread/list data into readable summary lines', () => {
   ]);
 });
 
+test('formats thread/list without truncating additional items', () => {
+  const lines = formatCodexCommandResult('thread/list', {
+    threads: Array.from({ length: 11 }, (_, index) => ({
+      id: `thr_${index + 1}`,
+      preview: `thread ${index + 1}`,
+      status: { type: 'loaded' },
+    })),
+  });
+
+  assert.equal(lines.some((line) => line.startsWith('... ')), false);
+  assert.deepEqual(lines[0], '[codex-bridge] thread/list: 11 item(s)');
+  assert.ok(lines.includes('10. thr_10'));
+  assert.ok(lines.includes('11. thr_11'));
+});
+
 test('falls back to compact key fields for single-object responses', () => {
   const lines = formatCodexCommandResult('thread/read', {
     id: 'thr_123',
