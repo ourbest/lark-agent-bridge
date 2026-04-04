@@ -15,8 +15,10 @@ import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/c
 import { createProjectRegistry } from './runtime/project-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
+import { formatCodexCommandResult } from './runtime/codex-command-formatting.ts';
 import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
 import { JsonBindingStore } from './storage/json-binding-store.ts';
+import { createApprovalService } from './runtime/approval-service.ts';
 import { defaultHttpInstance, LoggerLevel, WSClient, EventDispatcher, Client } from '@larksuiteoapi/node-sdk';
 
 export async function run(): Promise<void> {
@@ -26,6 +28,8 @@ export async function run(): Promise<void> {
   const consoleRuntime = resolveConsoleRuntimeConfig();
   const codexRuntimes = resolveCodexRuntimeConfigs() ?? [];
   const feishuRuntime = resolveFeishuRuntimeConfig();
+  const approvalService = createApprovalService();
+  const bridgeStore = new JsonBindingStore(storagePath);
   let projectRegistryImpl: ReturnType<typeof createProjectRegistry> | null = null;
   let projectConfigWatcher: ReturnType<typeof createProjectConfigWatcher> | null = null;
   let reloadProjectsHandler: (() => Promise<string[]>) | null = null;
@@ -45,7 +49,8 @@ export async function run(): Promise<void> {
   const app = createBridgeApp({
     config,
     larkTransport: transport,
-    bindingStore: new JsonBindingStore(storagePath),
+    bindingStore: bridgeStore,
+    approvalService,
     projectRegistry: {
       async describeProject(projectInstanceId: string) {
         if (projectRegistryImpl === null) {
@@ -71,7 +76,7 @@ export async function run(): Promise<void> {
         params: input.params,
       });
 
-      return [`[codex-bridge] ${JSON.stringify(result)}`];
+      return formatCodexCommandResult(input.method, result);
     },
   });
 
@@ -170,18 +175,63 @@ export async function run(): Promise<void> {
   projectRegistryImpl = createProjectRegistry({
     getProjectConfig: (projectInstanceId: string) => {
       const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
-      if (!entry || !entry.websocketUrl) return null;
-      return { projectInstanceId: entry.projectInstanceId, websocketUrl: entry.websocketUrl };
+      if (!entry) return null;
+      return entry;
     },
-    createClient: (projectInstanceId: string, websocketUrl: string) =>
+    createClient: (projectInstanceId: string, config) =>
       new CodexAppServerClient({
-        command: 'codex',
-        args: ['app-server'],
+        command: config.command,
+        args: config.args,
+        cwd: config.cwd,
         clientInfo: { name: 'codex-bridge', title: 'Codex Bridge', version: '0.1.0' },
-        serviceName: 'codex-bridge',
-        transport: 'websocket',
-        websocketUrl,
+        serviceName: config.serviceName,
+        transport: config.transport,
+        websocketUrl: config.websocketUrl,
       }),
+    getLastThread: (projectInstanceId: string, sessionId: string) =>
+      bridgeStore.getLastThreadId(projectInstanceId, sessionId),
+    setLastThread: (projectInstanceId: string, sessionId: string, threadId: string) =>
+      bridgeStore.setLastThreadId(projectInstanceId, sessionId, threadId),
+    onServerRequest: async ({ projectInstanceId, request, respond }) => {
+      const sessionId = await app.bindingService.getSessionByProject(projectInstanceId);
+      if (sessionId === null) {
+        return;
+      }
+
+      const announcement = await approvalService.registerRequest({
+        requestId: request.id,
+        projectInstanceId,
+        sessionId,
+        threadId: String(request.params.threadId),
+        turnId: String(request.params.turnId),
+        itemId: String(request.params.itemId),
+        kind:
+          request.method === 'item/fileChange/requestApproval'
+            ? 'fileChange'
+            : request.method === 'item/permissions/requestApproval'
+              ? 'permissions'
+              : 'commandExecution',
+        command: typeof request.params.command === 'string' ? request.params.command : null,
+        cwd: typeof request.params.cwd === 'string' ? request.params.cwd : null,
+        grantRoot: typeof request.params.grantRoot === 'string' ? request.params.grantRoot : null,
+        reason: typeof request.params.reason === 'string' ? request.params.reason : null,
+        permissions:
+          request.method === 'item/permissions/requestApproval' && request.params.permissions !== undefined
+            ? (request.params.permissions as {
+                fileSystem?: { read?: string[]; write?: string[] } | null;
+                network?: { enabled?: boolean | null } | null;
+              })
+            : null,
+        respond: async (_requestId, result) => {
+          await respond(result);
+        },
+      });
+
+      await app.larkAdapter.send({
+        targetSessionId: sessionId,
+        text: announcement.lines.join('\n'),
+      });
+    },
     router: app.router,
   });
 

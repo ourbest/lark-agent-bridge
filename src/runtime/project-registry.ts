@@ -1,21 +1,36 @@
 import type { CodexProjectClient } from './codex-project.ts';
+import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts';
 import type { BridgeRouter } from '../core/router/router.ts';
 
 export interface ProjectConfig {
   projectInstanceId: string;
-  websocketUrl: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  serviceName: string;
+  transport: 'stdio' | 'websocket';
+  websocketUrl?: string;
 }
 
 export interface ProjectRegistryOptions {
   getProjectConfig: (projectInstanceId: string) => ProjectConfig | null;
-  createClient: (projectInstanceId: string, websocketUrl: string) => CodexProjectClient;
+  createClient: (projectInstanceId: string, config: ProjectConfig) => CodexProjectClient;
   router?: Pick<BridgeRouter, 'registerProjectHandler'>;
+  onServerRequest?: (input: {
+    projectInstanceId: string;
+    request: CodexServerRequest;
+    respond: (result: unknown) => Promise<void>;
+  }) => Promise<void>;
+  getLastThread?: (projectInstanceId: string, sessionId: string) => string | null;
+  setLastThread?: (projectInstanceId: string, sessionId: string, threadId: string) => void;
 }
 
 export interface ProjectRegistry {
   onBindingChanged(event: { type: string; projectId?: string; sessionId?: string }): Promise<void>;
   reconcileProjectConfigs(projectConfigs: ProjectConfig[]): Promise<void>;
   executeCommand(projectInstanceId: string, input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
+  resumeThread(projectInstanceId: string, threadId: string): Promise<string>;
+  getLastThread(projectInstanceId: string, sessionId: string): Promise<string | null>;
   getHandler(projectInstanceId: string): ((input: { projectInstanceId: string; message: { text: string } }) => Promise<{ text: string } | null>) | null;
   describeProject(projectInstanceId: string): Promise<ProjectState>;
   stop(): Promise<void>;
@@ -33,7 +48,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
   // projectId -> { client, bindingCount, sessions: Set<string> }
   const activeProjects = new Map<
     string,
-    { client: CodexProjectClient; bindingCount: number; sessions: Set<string>; websocketUrl: string }
+    { client: CodexProjectClient; bindingCount: number; sessions: Set<string>; config: ProjectConfig }
   >();
   const knownProjectIds = new Set<string>();
   let configuredProjectIds = new Set<string>();
@@ -41,6 +56,43 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
 
   function markProjectKnown(projectId: string): void {
     knownProjectIds.add(projectId);
+  }
+
+  function attachServerRequestHandler(projectId: string, client: CodexProjectClient): void {
+    if (options.onServerRequest === undefined) {
+      return;
+    }
+
+    client.onServerRequest = (request) => {
+      void options.onServerRequest?.({
+        projectInstanceId: projectId,
+        request,
+        respond: async (result: unknown) => {
+          if (client.respondToServerRequest === undefined) {
+            throw new Error(`Project ${projectId} does not support server request responses`);
+          }
+
+          await client.respondToServerRequest(request.id, result);
+        },
+      });
+    };
+  }
+
+  function attachThreadChangedHandler(projectId: string, client: CodexProjectClient): void {
+    if (options.setLastThread === undefined) {
+      return;
+    }
+
+    client.onThreadChanged = (threadId) => {
+      const entry = activeProjects.get(projectId);
+      if (!entry) {
+        return;
+      }
+
+      for (const sessionId of entry.sessions) {
+        options.setLastThread?.(projectId, sessionId, threadId);
+      }
+    };
   }
 
   async function disconnectProject(projectId: string): Promise<void> {
@@ -68,14 +120,16 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
         if (!entry) {
           if (!config) return;
 
-          const client = options.createClient(event.projectId, config.websocketUrl);
+          const client = options.createClient(event.projectId, config);
           entry = {
             client,
             bindingCount: 0,
             sessions: new Set(),
-            websocketUrl: config.websocketUrl,
+            config,
           };
           activeProjects.set(event.projectId, entry);
+          attachServerRequestHandler(event.projectId, client);
+          attachThreadChangedHandler(event.projectId, client);
 
           if (options.router) {
             options.router.registerProjectHandler(event.projectId, async ({ message }) => {
@@ -87,7 +141,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
               }
             });
           }
-        } else if (config && entry.websocketUrl !== config.websocketUrl) {
+        } else if (config && JSON.stringify(entry.config) !== JSON.stringify(config)) {
           await disconnectProject(event.projectId);
           entry = undefined;
         } else if (!config && !entry.sessions.has(event.sessionId)) {
@@ -98,14 +152,16 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           const refreshedConfig = options.getProjectConfig(event.projectId);
           if (!refreshedConfig) return;
 
-          const client = options.createClient(event.projectId, refreshedConfig.websocketUrl);
+          const client = options.createClient(event.projectId, refreshedConfig);
           entry = {
             client,
             bindingCount: 0,
             sessions: new Set(),
-            websocketUrl: refreshedConfig.websocketUrl,
+            config: refreshedConfig,
           };
           activeProjects.set(event.projectId, entry);
+          attachServerRequestHandler(event.projectId, client);
+          attachThreadChangedHandler(event.projectId, client);
 
           if (options.router) {
             options.router.registerProjectHandler(event.projectId, async ({ message }) => {
@@ -180,6 +236,30 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       }
 
       return await entry.client.executeCommand(input);
+    },
+
+    async resumeThread(projectInstanceId: string, threadId: string): Promise<string> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry) {
+        throw new Error(`Project ${projectInstanceId} is not active`);
+      }
+
+      if (entry.client.resumeThread === undefined) {
+        throw new Error(`Project ${projectInstanceId} does not support thread resume`);
+      }
+
+      const resumedThreadId = await entry.client.resumeThread({ threadId });
+      if (options.setLastThread !== undefined) {
+        for (const sessionId of entry.sessions) {
+          options.setLastThread(projectInstanceId, sessionId, resumedThreadId);
+        }
+      }
+
+      return resumedThreadId;
+    },
+
+    async getLastThread(projectInstanceId: string, sessionId: string): Promise<string | null> {
+      return options.getLastThread?.(projectInstanceId, sessionId) ?? null;
     },
 
     async describeProject(projectInstanceId: string): Promise<ProjectState> {

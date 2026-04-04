@@ -58,6 +58,7 @@ In Feishu/Lark chats, the bridge understands these commands:
 //list
 //sessions
 //reload projects
+//resume <threadId|last>
 //help
 app/list
 session/list
@@ -65,7 +66,7 @@ session/get <id>
 thread/get <id>
 ```
 
-`//sessions` shows the bridge binding plus the current Codex project state. `//reload projects` reloads `projects.json` immediately, which is useful after editing the project list on disk. The supported Codex passthrough commands are exactly `app/list`, `session/list`, `session/get <id>`, and `thread/get <id>`.
+`//sessions` shows the bridge binding plus the current Codex project state. `//reload projects` reloads `projects.json` immediately, which is useful after editing the project list on disk. `//resume <threadId|last>` resumes a Codex thread for the current chat and project. The supported Codex passthrough commands are exactly `app/list`, `session/list`, `session/get <id>`, and `thread/get <id>`.
 
 ## Run Codex in background mode
 

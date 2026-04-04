@@ -12,6 +12,11 @@ export interface CodexGenerateReplyInput {
   cwd?: string;
 }
 
+export interface CodexResumeThreadInput {
+  threadId: string;
+  cwd?: string;
+}
+
 export interface CodexExecuteCommandInput {
   method: string;
   params: Record<string, unknown>;
@@ -24,6 +29,8 @@ export interface CodexProcess {
   stdout: NodeJS.ReadableStream;
   stderr?: NodeJS.ReadableStream;
   kill(signal?: NodeJS.Signals | number): boolean;
+  on(event: 'error', listener: (error: Error) => void): void;
+  on(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): void;
 }
 
 export interface CodexWebSocketLike {
@@ -34,6 +41,12 @@ export interface CodexWebSocketLike {
   onmessage: ((event: { data: unknown }) => void) | null;
   onerror: ((event: unknown) => void) | null;
   onclose: ((event: unknown) => void) | null;
+}
+
+export interface CodexServerRequest {
+  id: number | string;
+  method: string;
+  params: Record<string, unknown>;
 }
 
 export interface CodexAppServerClientOptions {
@@ -48,6 +61,7 @@ export interface CodexAppServerClientOptions {
   websocketUrl?: string;
   onTextDelta?: (text: string) => void;
   onTurnCompleted?: () => void;
+  onThreadChanged?: (threadId: string) => void;
   onStderr?: (text: string) => void;
   allocateWebSocketPort?: () => Promise<number>;
   connectWebSocket?: (url: string) => Promise<CodexWebSocketLike>;
@@ -74,7 +88,9 @@ export class CodexAppServerClient {
   private finalReplyText: string | null = null;
   onTextDelta: ((text: string) => void) | null = null;
   onTurnCompleted: (() => void) | null = null;
+  onThreadChanged: ((threadId: string) => void) | null = null;
   onNotification: ((message: { method: string; params?: Record<string, unknown> }) => void) | null = null;
+  onServerRequest: ((request: CodexServerRequest) => void | Promise<void>) | null = null;
 
   constructor(options: CodexAppServerClientOptions) {
     this.options = options;
@@ -107,6 +123,27 @@ export class CodexAppServerClient {
   async executeCommand(input: CodexExecuteCommandInput): Promise<unknown> {
     await this.ensureStarted();
     return await this.sendRequest(input.method, input.params);
+  }
+
+  async resumeThread(input: CodexResumeThreadInput): Promise<string> {
+    await this.ensureStarted();
+
+    const response = await this.sendRequest('thread/resume', {
+      threadId: input.threadId,
+      persistExtendedHistory: true,
+      cwd: input.cwd ?? this.options.cwd,
+    });
+
+    const threadId = this.readString(response, ['thread', 'id']) ?? input.threadId;
+    this.threadId = threadId;
+    this.onThreadChanged?.(threadId);
+    this.options.onThreadChanged?.(threadId);
+    return threadId;
+  }
+
+  async respondToServerRequest(requestId: number | string, result: unknown): Promise<void> {
+    await this.ensureStarted();
+    this.sendRaw({ id: requestId, result });
   }
 
   async stop(): Promise<void> {
@@ -149,6 +186,18 @@ export class CodexAppServerClient {
       });
 
       this.process = spawned;
+      spawned.on('error', (error) => {
+        this.handleProcessTermination(error instanceof Error ? error : new Error(String(error)));
+      });
+      spawned.on('exit', (code, signal) => {
+        if (this.process === spawned) {
+          const reason =
+            code === 0
+              ? new Error('Codex app-server exited unexpectedly')
+              : new Error(`Codex app-server exited with code ${code ?? 'null'}${signal !== null ? ` signal ${signal}` : ''}`);
+          this.handleProcessTermination(reason);
+        }
+      });
       spawned.stderr?.on('data', (chunk) => {
         this.options.onStderr?.(String(chunk));
       });
@@ -185,6 +234,8 @@ export class CodexAppServerClient {
     }
 
     this.threadId = threadId;
+    this.onThreadChanged?.(threadId);
+    this.options.onThreadChanged?.(threadId);
   }
 
   private sendNotification(method: string, params: Record<string, unknown>): void {
@@ -234,6 +285,15 @@ export class CodexAppServerClient {
       method?: string;
       params?: Record<string, unknown>;
     };
+
+    if (message.id !== undefined && message.method !== undefined) {
+      this.onServerRequest?.({
+        id: message.id,
+        method: message.method,
+        params: message.params ?? {},
+      });
+      return;
+    }
 
     if (message.id !== undefined) {
       const pending = this.pendingRequests.get(message.id);
@@ -345,6 +405,36 @@ export class CodexAppServerClient {
     return await connectWebSocket(url);
   }
 
+  private handleConnectionClosed(): void {
+    this.handleConnectionTermination(new Error('Codex websocket connection closed'));
+  }
+
+  private handleConnectionError(event: unknown): void {
+    this.handleConnectionTermination(this.readErrorEvent(event));
+  }
+
+  private handleConnectionTermination(error: Error): void {
+    this.handleProcessTermination(error);
+  }
+
+  private handleProcessTermination(error: Error): void {
+    this.socket = null;
+    this.process = null;
+    this.threadId = null;
+    this.replyChunks = [];
+    this.finalReplyText = null;
+
+    const pendingRequests = [...this.pendingRequests.values()];
+    this.pendingRequests.clear();
+    for (const pending of pendingRequests) {
+      pending.reject(error);
+    }
+
+    this.pendingReplyResolver = null;
+    this.pendingReplyRejecter?.(error);
+    this.pendingReplyRejecter = null;
+  }
+
   private readString(value: unknown, path: string[]): string | null {
     let current: unknown = value;
     for (const segment of path) {
@@ -422,5 +512,20 @@ export class CodexAppServerClient {
     }
 
     return null;
+  }
+
+  private readErrorEvent(event: unknown): Error {
+    if (event instanceof Error) {
+      return event;
+    }
+
+    if (typeof event === 'object' && event !== null) {
+      const message = (event as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim()) {
+        return new Error(message);
+      }
+    }
+
+    return new Error('Codex websocket connection error');
   }
 }

@@ -3,12 +3,179 @@ import test from 'node:test';
 
 import { BindingService } from '../../src/core/binding/binding-service.ts';
 import { createChatCommandService } from '../../src/commands/chat-command-service.ts';
+import { createApprovalService } from '../../src/runtime/approval-service.ts';
 import { InMemoryBindingStore } from '../../src/storage/binding-store.ts';
 import { createProjectRegistry } from '../../src/runtime/project-registry.ts';
 
 function createBindingService(): BindingService {
   return new BindingService(new InMemoryBindingStore());
 }
+
+test('routes approval commands through the approval service', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const approvalService = createApprovalService();
+  const responses: Array<{ requestId: number; result: unknown }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  await approvalService.registerRequest({
+    requestId: 42,
+    projectInstanceId: 'project-a',
+    sessionId: 'chat-a',
+    threadId: 'thr_123',
+    turnId: 'turn_1',
+    itemId: 'item-1',
+    kind: 'commandExecution',
+    command: 'rm -rf /tmp/example',
+    respond: async (requestId, result) => {
+      responses.push({ requestId: Number(requestId), result });
+    },
+  });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: registry,
+    approvalService,
+  });
+
+  const listLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//approvals',
+  });
+
+  assert.deepEqual(listLines, [
+    '[codex-bridge] pending approvals:',
+    '  42 | command execution | project-a | thr_123/turn_1',
+  ]);
+
+  const approveLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//approve 42',
+  });
+
+  assert.deepEqual(approveLines, ['[codex-bridge] approved request 42']);
+  assert.deepEqual(responses, [
+    {
+      requestId: 42,
+      result: {
+        decision: 'accept',
+      },
+    },
+  ]);
+});
+
+test('resumes a thread by explicit id for the bound chat', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{ projectInstanceId: string; threadId: string }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      async resumeThread(projectInstanceId: string, threadId: string) {
+        calls.push({ projectInstanceId, threadId });
+        return threadId;
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//resume thr_123',
+  });
+
+  assert.deepEqual(lines, ['[codex-bridge] resumed thread thr_123 for this chat']);
+  assert.deepEqual(calls, [
+    {
+      projectInstanceId: 'project-a',
+      threadId: 'thr_123',
+    },
+  ]);
+});
+
+test('resumes the last thread for the bound chat', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{ projectInstanceId: string; sessionId: string }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      async getLastThread(projectInstanceId: string, sessionId: string) {
+        calls.push({ projectInstanceId, sessionId });
+        return 'thr_456';
+      },
+      async resumeThread(projectInstanceId: string, threadId: string) {
+        calls.push({ projectInstanceId, sessionId: threadId });
+        return threadId;
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//resume last',
+  });
+
+  assert.deepEqual(lines, ['[codex-bridge] resumed thread thr_456 for this chat']);
+  assert.deepEqual(calls, [
+    {
+      projectInstanceId: 'project-a',
+      sessionId: 'chat-a',
+    },
+    {
+      projectInstanceId: 'project-a',
+      sessionId: 'thr_456',
+    },
+  ]);
+});
 
 test('returns bridge and codex state for //sessions on a bound chat', async () => {
   const bindingService = createBindingService();
@@ -222,10 +389,62 @@ test('routes a whitelisted structured codex command through the executor', async
       sessionId: 'chat-a',
       senderId: 'user-a',
       projectInstanceId: 'project-a',
-      method: 'session/get',
+      method: 'thread/read',
       params: {
         id: 'chat-a',
       },
+    },
+  ]);
+  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+});
+
+test('translates session/list to the current app-server thread/list method', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    sessionId: string;
+    senderId: string;
+    projectInstanceId: string;
+    method: string;
+    params: Record<string, unknown>;
+  }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: registry,
+    executeStructuredCodexCommand: async (input) => {
+      calls.push(input);
+      return ['[codex-bridge] codex ok'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'session/list',
+  });
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      projectInstanceId: 'project-a',
+      method: 'thread/list',
+      params: {},
     },
   ]);
   assert.deepEqual(lines, ['[codex-bridge] codex ok']);
@@ -274,11 +493,17 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  //list              - show current binding',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
+    '  //resume <id|last>  - resume a codex thread',
+    '  //approvals         - list pending approval requests',
+    '  //approve <id>      - approve one request',
+    '  //approve-all <id>  - approve one request for the session',
+    '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  app/list            - list codex apps',
     '  session/list        - list codex sessions',
+    '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
-    '  thread/get <id>     - get a codex thread',
+    '  thread/read <id>    - get a codex thread',
   ]);
 });
 
@@ -313,10 +538,16 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //list              - show current binding',
     '  //sessions          - show bridge and codex state',
     '  //reload projects   - reload projects.json',
+    '  //resume <id|last>  - resume a codex thread',
+    '  //approvals         - list pending approval requests',
+    '  //approve <id>      - approve one request',
+    '  //approve-all <id>  - approve one request for the session',
+    '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  app/list            - list codex apps',
     '  session/list        - list codex sessions',
+    '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
-    '  thread/get <id>     - get a codex thread',
+    '  thread/read <id>    - get a codex thread',
   ]);
 });

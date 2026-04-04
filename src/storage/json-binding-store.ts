@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type { BindingRecord, BindingSnapshot, BindingStore } from './binding-store.ts';
+import type { BindingRecord, BindingSnapshot, BindingStore, ThreadMemoryRecord, ThreadMemoryStore } from './binding-store.ts';
 
 function ensureDirectory(filePath: string): void {
   const directory = path.dirname(filePath);
@@ -12,16 +12,17 @@ function ensureDirectory(filePath: string): void {
 
 function readSnapshot(filePath: string): BindingSnapshot {
   if (!fs.existsSync(filePath)) {
-    return { bindings: [] };
+    return { bindings: [], threadMemories: [] };
   }
 
   const raw = fs.readFileSync(filePath, 'utf8');
   if (raw.trim() === '') {
-    return { bindings: [] };
+    return { bindings: [], threadMemories: [] };
   }
 
   const parsed = JSON.parse(raw) as Partial<BindingSnapshot>;
   const bindings = Array.isArray(parsed.bindings) ? parsed.bindings : [];
+  const threadMemories = Array.isArray(parsed.threadMemories) ? parsed.threadMemories : [];
   return {
     bindings: bindings
       .filter((entry): entry is BindingRecord => {
@@ -35,6 +36,21 @@ function readSnapshot(filePath: string): BindingSnapshot {
       .map((entry) => ({
         projectInstanceId: entry.projectInstanceId,
         sessionId: entry.sessionId,
+      })),
+    threadMemories: threadMemories
+      .filter((entry): entry is ThreadMemoryRecord => {
+        return (
+          typeof entry === 'object' &&
+          entry !== null &&
+          typeof entry.projectInstanceId === 'string' &&
+          typeof entry.sessionId === 'string' &&
+          typeof entry.threadId === 'string'
+        );
+      })
+      .map((entry) => ({
+        projectInstanceId: entry.projectInstanceId,
+        sessionId: entry.sessionId,
+        threadId: entry.threadId,
       })),
   };
 }
@@ -65,6 +81,16 @@ export class JsonBindingStore implements BindingStore {
 
   private removeSession(sessionId: string): void {
     this.snapshot.bindings = this.snapshot.bindings.filter((entry) => entry.sessionId !== sessionId);
+  }
+
+  private removeThreadProject(projectInstanceId: string): void {
+    this.snapshot.threadMemories = this.snapshot.threadMemories.filter(
+      (entry) => entry.projectInstanceId !== projectInstanceId,
+    );
+  }
+
+  private removeThreadSession(sessionId: string): void {
+    this.snapshot.threadMemories = this.snapshot.threadMemories.filter((entry) => entry.sessionId !== sessionId);
   }
 
   getSessionByProject(projectInstanceId: string): string | null {
@@ -99,5 +125,30 @@ export class JsonBindingStore implements BindingStore {
       projectInstanceId: entry.projectInstanceId,
       sessionId: entry.sessionId,
     }));
+  }
+
+  getLastThreadId(projectInstanceId: string, sessionId: string): string | null {
+    const memory = this.snapshot.threadMemories.find(
+      (entry) => entry.projectInstanceId === projectInstanceId && entry.sessionId === sessionId,
+    );
+    return memory?.threadId ?? null;
+  }
+
+  setLastThreadId(projectInstanceId: string, sessionId: string, threadId: string): void {
+    this.snapshot.threadMemories = this.snapshot.threadMemories.filter(
+      (entry) => !(entry.projectInstanceId === projectInstanceId && entry.sessionId === sessionId),
+    );
+    this.snapshot.threadMemories.push({ projectInstanceId, sessionId, threadId });
+    this.persist();
+  }
+
+  deleteLastThreadByProject(projectInstanceId: string): void {
+    this.removeThreadProject(projectInstanceId);
+    this.persist();
+  }
+
+  deleteLastThreadBySession(sessionId: string): void {
+    this.removeThreadSession(sessionId);
+    this.persist();
   }
 }

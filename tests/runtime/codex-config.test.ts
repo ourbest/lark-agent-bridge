@@ -85,12 +85,68 @@ test('resolves multiple codex runtime configs from environment json', () => {
   );
 });
 
+test('loads stdio project configs from projects file shape', () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const filePath = join(tempDir, 'projects.json');
+
+  writeFileSync(
+    filePath,
+    `${JSON.stringify(
+      {
+        projects: [
+          {
+            projectInstanceId: 'project-a',
+            transport: 'stdio',
+            command: 'codex',
+            args: ['app-server'],
+            cwd: '/repo/a',
+            serviceName: 'codex-bridge-a',
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+
+  assert.deepEqual(resolveCodexRuntimeConfigs({
+    BRIDGE_CODEX_PROJECTS_JSON: JSON.stringify([
+      {
+        projectInstanceId: 'project-a',
+        transport: 'stdio',
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/repo/a',
+        serviceName: 'codex-bridge-a',
+      },
+    ]),
+  }), [
+    {
+      projectInstanceId: 'project-a',
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/repo/a',
+      serviceName: 'codex-bridge-a',
+      transport: 'stdio',
+      websocketUrl: undefined,
+    },
+  ]);
+
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
 test('keeps the last valid projects snapshot when reload encounters invalid json', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
   const firstSnapshot = [
     {
       projectInstanceId: 'project-a',
+      command: 'codex',
+      args: ['app-server'],
+      cwd: undefined,
+      serviceName: 'codex-bridge',
+      transport: 'websocket' as const,
       websocketUrl: 'ws://127.0.0.1:4000',
     },
   ];
@@ -135,8 +191,8 @@ test('can start a projects watcher even when the file does not exist yet', async
 });
 
 test('serializes watcher reload publications so stale snapshots do not win', async () => {
-  const firstSnapshot = [{ projectInstanceId: 'project-a', websocketUrl: 'ws://one' }];
-  const secondSnapshot = [{ projectInstanceId: 'project-a', websocketUrl: 'ws://two' }];
+  const firstSnapshot = [{ projectInstanceId: 'project-a', transport: 'stdio' as const, cwd: '/one' }];
+  const secondSnapshot = [{ projectInstanceId: 'project-a', transport: 'stdio' as const, cwd: '/two' }];
   const appliedSnapshots: string[][] = [];
   const blockers: Array<() => void> = [];
 
@@ -148,7 +204,7 @@ test('serializes watcher reload publications so stale snapshots do not win', asy
       return readCount === 1 ? firstSnapshot : secondSnapshot;
     },
     onProjectsChanged: async (projects) => {
-      appliedSnapshots.push(projects.map((entry) => entry.websocketUrl ?? ''));
+      appliedSnapshots.push(projects.map((entry) => entry.cwd ?? ''));
       if (appliedSnapshots.length === 1) {
         await new Promise<void>((resolve) => {
           blockers.push(resolve);
@@ -162,13 +218,13 @@ test('serializes watcher reload publications so stale snapshots do not win', asy
   const secondReload = watcher.reload();
   await Promise.resolve();
 
-  assert.deepEqual(appliedSnapshots, [['ws://one']]);
+  assert.deepEqual(appliedSnapshots, [['/one']]);
 
   blockers.pop()?.();
   await firstReload;
   await secondReload;
 
-  assert.deepEqual(appliedSnapshots, [['ws://one'], ['ws://two']]);
+  assert.deepEqual(appliedSnapshots, [['/one'], ['/two']]);
   assert.deepEqual(watcher.getProjects(), secondSnapshot);
 });
 

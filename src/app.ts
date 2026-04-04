@@ -10,6 +10,7 @@ import { InMemoryBindingStore } from './storage/binding-store.ts';
 import type { LarkTransport } from './adapters/lark/adapter.ts';
 import type { BindingStore } from './storage/binding-store.ts';
 import type { ProjectState } from './runtime/project-registry.ts';
+import type { ApprovalService } from './runtime/approval-service.ts';
 
 const BUSY_REACTION_EMOJI_TYPE = 'THUMBSUP';
 
@@ -34,6 +35,7 @@ export function createBridgeApp(options: {
   projectRegistry: {
     describeProject(projectInstanceId: string): Promise<ProjectState>;
   };
+  approvalService?: ApprovalService;
   reloadProjects?: () => Promise<string[]>;
   executeCodexCommand?: (input: {
     sessionId: string;
@@ -46,7 +48,7 @@ export function createBridgeApp(options: {
     sessionId: string;
     senderId: string;
     projectInstanceId: string;
-    method: 'app/list' | 'session/list' | 'session/get' | 'thread/get';
+    method: 'app/list' | 'thread/list' | 'thread/read';
     params: Record<string, unknown>;
   }) => Promise<string[]>;
 }): BridgeRuntime {
@@ -64,6 +66,7 @@ export function createBridgeApp(options: {
   const chatCommandService = createChatCommandService({
     bindingService,
     projectRegistry: options.projectRegistry,
+    approvalService: options.approvalService,
     reloadProjects: options.reloadProjects,
     executeCodexCommand: options.executeCodexCommand,
     executeStructuredCodexCommand: options.executeStructuredCodexCommand,

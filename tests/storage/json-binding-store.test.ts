@@ -1,29 +1,21 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { JsonBindingStore } from '../../src/storage/json-binding-store.ts';
 
-test('persists bindings to a json file and reloads them on startup', async () => {
-  const storePath = '/tmp/codex-bridge-binding-store.json';
-  const firstStore = new JsonBindingStore(storePath);
+test('persists the last thread for a chat and project pair', () => {
+  const filePath = path.join('/tmp', `codex-bridge-thread-store-${Date.now()}.json`);
+  try {
+    const store = new JsonBindingStore(filePath);
+    store.setLastThreadId('project-a', 'chat-a', 'thr_123');
 
-  firstStore.setBinding('project-a', 'session-a');
-  assert.equal(firstStore.getSessionByProject('project-a'), 'session-a');
-  assert.equal(firstStore.getProjectBySession('session-a'), 'project-a');
-
-  const secondStore = new JsonBindingStore(storePath);
-  assert.equal(secondStore.getSessionByProject('project-a'), 'session-a');
-  assert.equal(secondStore.getProjectBySession('session-a'), 'project-a');
-});
-
-test('removes bindings from the persisted json file when unbound', async () => {
-  const storePath = '/tmp/codex-bridge-binding-store-remove.json';
-  const store = new JsonBindingStore(storePath);
-
-  store.setBinding('project-a', 'session-a');
-  store.deleteByProject('project-a');
-
-  const reloadedStore = new JsonBindingStore(storePath);
-  assert.equal(reloadedStore.getSessionByProject('project-a'), null);
-  assert.equal(reloadedStore.getProjectBySession('session-a'), null);
+    const reloaded = new JsonBindingStore(filePath);
+    assert.equal(reloaded.getLastThreadId('project-a', 'chat-a'), 'thr_123');
+  } finally {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
 });

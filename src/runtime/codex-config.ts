@@ -23,27 +23,26 @@ export interface CodexRuntimeConfig {
 
 export type CodexProjectRuntimeConfig = CodexRuntimeConfig;
 
-export interface ProjectConfigEntry {
-  projectInstanceId: string;
-  websocketUrl?: string;
-}
+export type ProjectConfigEntry = CodexRuntimeConfig;
 
 export function parseProjectConfigEntries(raw: string): ProjectConfigEntry[] | null {
   if (raw.trim() === '') {
     return null;
   }
 
-  const parsed = JSON.parse(raw) as { projects?: ProjectConfigEntry[] };
+  const parsed = JSON.parse(raw) as { projects?: Array<Partial<CodexRuntimeConfig> & { projectInstanceId: string }> };
   if (!Array.isArray(parsed.projects)) {
     return null;
   }
 
-  return parsed.projects.filter((entry): entry is ProjectConfigEntry =>
-    typeof entry === 'object' &&
-    entry !== null &&
-    typeof entry.projectInstanceId === 'string' &&
-    entry.projectInstanceId.trim() !== ''
-  );
+  return parsed.projects
+    .filter((entry): entry is Partial<CodexRuntimeConfig> & { projectInstanceId: string } =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      typeof entry.projectInstanceId === 'string' &&
+      entry.projectInstanceId.trim() !== ''
+    )
+    .map((entry) => normalizeProjectConfig(entry));
 }
 
 export function loadProjectsFromFile(filePath: string): ProjectConfigEntry[] | null {

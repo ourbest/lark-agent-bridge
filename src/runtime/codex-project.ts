@@ -1,9 +1,14 @@
 import type { InboundMessage, ProjectReply } from '../core/events/message.ts';
 import type { BridgeRouter } from '../core/router/router.ts';
+import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts';
 
 export interface CodexProjectClient {
   generateReply(input: { text: string; cwd?: string }): Promise<string>;
   executeCommand?(input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
+  resumeThread?(input: { threadId: string; cwd?: string }): Promise<string>;
+  onServerRequest?: ((request: CodexServerRequest) => void | Promise<void>) | null;
+  onThreadChanged?: ((threadId: string) => void) | null;
+  respondToServerRequest?: (requestId: number | string, result: unknown) => Promise<void>;
   stop(): Promise<void>;
   onTextDelta?: ((text: string) => void) | null;
   onTurnCompleted?: (() => void) | null;
@@ -48,6 +53,14 @@ export class CodexProjectSession {
     }
 
     return await this.client.executeCommand(input);
+  }
+
+  async resumeThread(input: { threadId: string; cwd?: string }): Promise<string> {
+    if (this.client.resumeThread === undefined) {
+      throw new Error('Thread resume is not supported by this client');
+    }
+
+    return await this.client.resumeThread(input);
   }
 
   private async enqueue<T>(task: () => Promise<T>): Promise<T> {

@@ -25,10 +25,7 @@ function equalProjects(left: ProjectConfigEntry[], right: ProjectConfigEntry[]):
     return false;
   }
 
-  return left.every((entry, index) => {
-    const candidate = right[index];
-    return entry.projectInstanceId === candidate.projectInstanceId && entry.websocketUrl === candidate.websocketUrl;
-  });
+  return left.every((entry, index) => JSON.stringify(entry) === JSON.stringify(right[index]));
 }
 
 export function createProjectConfigWatcher(options: ProjectConfigWatcherOptions): ProjectConfigWatcher {

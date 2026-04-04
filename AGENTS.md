@@ -84,6 +84,7 @@ Bindings persist to `BRIDGE_STORAGE_PATH` (default `./data/bridge.json`). Two st
 | `//list` | Show current binding |
 | `//sessions` | Show bridge binding plus Codex project state |
 | `//reload projects` | Reload `projects.json` immediately |
+| `//resume <threadId|last>` | Resume a Codex thread for the current chat |
 | `//help` | Show help |
 | `app/list` | List supported Codex apps for the bound project |
 | `session/list` | List Codex sessions for the bound project |

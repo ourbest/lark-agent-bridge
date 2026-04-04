@@ -148,18 +148,18 @@ test('executes a structured command on an active project client', async () => {
 });
 
 test('recreates an active project client when its config changes', async () => {
-  const configs = [{ projectInstanceId: 'project-a', websocketUrl: 'ws://one' }];
+  const configs = [{ projectInstanceId: 'project-a', transport: 'stdio' as const, cwd: '/repo/one' }];
   const stopCalls: string[] = [];
-  const createdUrls: string[] = [];
+  const createdConfigs: string[] = [];
 
   const registry = createProjectRegistry({
     getProjectConfig: (id) => configs.find((entry) => entry.projectInstanceId === id) ?? null,
-    createClient: (_id, websocketUrl) => {
-      createdUrls.push(websocketUrl);
+    createClient: (_id, config) => {
+      createdConfigs.push(`${config.transport}:${config.cwd ?? ''}`);
       return {
-        generateReply: async ({ text }) => `reply:${websocketUrl}:${text}`,
+        generateReply: async ({ text }) => `reply:${config.transport}:${config.cwd}:${text}`,
         stop: async () => {
-          stopCalls.push(websocketUrl);
+          stopCalls.push(`${config.transport}:${config.cwd ?? ''}`);
         },
       };
     },
@@ -167,7 +167,7 @@ test('recreates an active project client when its config changes', async () => {
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
 
-  configs[0] = { projectInstanceId: 'project-a', websocketUrl: 'ws://two' };
+  configs[0] = { projectInstanceId: 'project-a', transport: 'stdio' as const, cwd: '/repo/two' };
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
 
@@ -178,9 +178,9 @@ test('recreates an active project client when its config changes', async () => {
     message: { text: 'hello' },
   });
 
-  assert.deepEqual(createdUrls, ['ws://one', 'ws://two']);
-  assert.deepEqual(stopCalls, ['ws://one']);
-  assert.equal(reply?.text, 'reply:ws://two:hello');
+  assert.deepEqual(createdConfigs, ['stdio:/repo/one', 'stdio:/repo/two']);
+  assert.deepEqual(stopCalls, ['stdio:/repo/one']);
+  assert.equal(reply?.text, 'reply:stdio:/repo/two:hello');
 });
 
 test('marks a project as removed after it disappears from a previous config snapshot', async () => {
