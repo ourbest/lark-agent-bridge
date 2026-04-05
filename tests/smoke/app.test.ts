@@ -205,7 +205,7 @@ test('updates the same status card for waiting approval and reconnecting while a
   assert.equal(reconnectingCard.header?.subtitle?.content, 'Reconnecting');
   assert.ok(reconnectingCard.body?.elements?.some((element) => String(element.content).includes('Reconnecting... 2/5')));
 
-  const completedCard = JSON.parse(updatedCards[2]?.card.content ?? '{}') as {
+  const completedCard = JSON.parse(updatedCards.at(-1)?.card.content ?? '{}') as {
     header?: { subtitle?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
@@ -307,12 +307,105 @@ test('updates the in-flight status card with streamed reply text and activity su
   assert.ok(progressCard.body?.elements?.some((element) => String(element.content).includes('reply so far')));
   assert.match(updatedCards[1]?.fallbackText ?? '', /reply so far/);
 
-  const completedCard = JSON.parse(updatedCards[2]?.card.content ?? '{}') as {
+  const completedCard = JSON.parse(updatedCards.at(-1)?.card.content ?? '{}') as {
     header?: { subtitle?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
   assert.equal(completedCard.header?.subtitle?.content, 'Completed');
   assert.ok(completedCard.body?.elements?.some((element) => String(element.content).includes('final reply')));
+
+  await app.stop();
+});
+
+test('keeps streamed reply text visible when a done status update finalizes the status card', async () => {
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+  let resolveReply: ((value: { text: string }) => void) | null = null;
+
+  const transport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    async sendMessage() {
+      return undefined;
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+      return { messageId: `card-${sentCards.length}` };
+    },
+    async updateCard(message) {
+      updatedCards.push(message);
+    },
+    async sendReaction() {},
+  } as LarkTransport;
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+      getProjectConfig(projectInstanceId) {
+        return {
+          projectInstanceId,
+          cwd: '/repo/project-a',
+          transport: 'websocket',
+          command: 'codex',
+          args: ['app-server'],
+        };
+      },
+    },
+  });
+
+  app.router.registerProjectHandler('project-a', async () => await new Promise<{ text: string }>((resolve) => {
+    resolveReply = resolve;
+  }));
+
+  await app.bindingService.bindProjectToSession('project-a', 'session-a');
+  await app.start();
+  assert.ok(eventHandler);
+
+  const inFlight = eventHandler!({
+    sessionId: 'session-a',
+    messageId: 'message-done-status-card',
+    text: 'hello',
+    senderId: 'user-a',
+    timestamp: '2026-03-29T00:00:00.000Z',
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  await app.reportProjectProgress({
+    projectId: 'project-a',
+    sessionId: 'session-a',
+    textDelta: 'final reply',
+  });
+
+  await app.reportProjectStatus({
+    projectId: 'project-a',
+    sessionId: 'session-a',
+    status: 'done',
+    source: 'notification',
+  });
+
+  const completedCard = JSON.parse(updatedCards.at(-1)?.card.content ?? '{}') as {
+    header?: { subtitle?: { content?: string } };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(completedCard.header?.subtitle?.content, 'Completed');
+  assert.ok(completedCard.body?.elements?.some((element) => String(element.content).includes('final reply')));
+  assert.ok(!completedCard.body?.elements?.some((element) => String(element.content).includes('Reply delivered below.')));
+
+  resolveReply?.({ text: 'final reply' });
+  await inFlight;
 
   await app.stop();
 });

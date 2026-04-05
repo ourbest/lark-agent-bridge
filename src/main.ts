@@ -22,6 +22,19 @@ import { JsonBindingStore } from './storage/json-binding-store.ts';
 import { createApprovalService } from './runtime/approval-service.ts';
 import { defaultHttpInstance, LoggerLevel, WSClient, EventDispatcher, Client } from '@larksuiteoapi/node-sdk';
 
+export async function patchFeishuMessageCard(
+  client: Pick<Client, 'request'>,
+  input: { messageId: string; content: string },
+): Promise<void> {
+  await client.request({
+    method: 'PATCH',
+    url: `/open-apis/im/v1/messages/${input.messageId}`,
+    data: {
+      content: input.content,
+    },
+  });
+}
+
 export async function run(): Promise<void> {
   const config = resolveBridgeConfig();
   const storagePath = resolveStoragePath();
@@ -31,8 +44,6 @@ export async function run(): Promise<void> {
   const feishuRuntime = resolveFeishuRuntimeConfig();
   const approvalService = createApprovalService();
   const bridgeStore = new JsonBindingStore(storagePath);
-  const latestInboundMessageIdBySession = new Map<string, string>();
-  const lastStatusBySession = new Map<string, string>();
   let projectRegistryImpl: ReturnType<typeof createProjectRegistry> | null = null;
   let projectConfigWatcher: ReturnType<typeof createProjectConfigWatcher> | null = null;
   let reloadProjectsHandler: (() => Promise<string[]>) | null = null;
@@ -56,9 +67,6 @@ export async function run(): Promise<void> {
     larkTransport: transport,
     bindingStore: bridgeStore,
     approvalService,
-    onInboundMessage: (message) => {
-      latestInboundMessageIdBySession.set(message.sessionId, message.messageId);
-    },
     onRestartRequested: async ({ sessionId, senderId }) => {
       if (restartInFlight) {
         await app?.larkAdapter.send({
@@ -86,6 +94,12 @@ export async function run(): Promise<void> {
         }
         return projectRegistryImpl.describeProject(projectInstanceId);
       },
+      async getProjectDiagnostics(projectInstanceId: string) {
+        if (projectRegistryImpl === null) {
+          throw new Error('project registry is not initialized');
+        }
+        return await projectRegistryImpl.getProjectDiagnostics(projectInstanceId);
+      },
       getProjectConfig(projectInstanceId: string) {
         const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
         return entry ?? null;
@@ -95,6 +109,12 @@ export async function run(): Promise<void> {
           throw new Error('project registry is not initialized');
         }
         return await projectRegistryImpl.startThread(projectInstanceId, options);
+      },
+      async restoreBinding(projectInstanceId: string, sessionId: string) {
+        if (projectRegistryImpl === null) {
+          throw new Error('project registry is not initialized');
+        }
+        await projectRegistryImpl.restoreBinding(projectInstanceId, sessionId);
       },
     },
     reloadProjects: async () => {
@@ -117,37 +137,6 @@ export async function run(): Promise<void> {
       return formatCodexCommandResult(input.method, result);
     },
   });
-
-  async function reactToSessionStatus(sessionId: string, status: 'working' | 'waiting_approval' | 'done' | 'failed'): Promise<void> {
-    if (app === null) {
-      return;
-    }
-
-    const previousStatus = lastStatusBySession.get(sessionId);
-    if (previousStatus === status) {
-      return;
-    }
-    lastStatusBySession.set(sessionId, status);
-
-    const messageId = latestInboundMessageIdBySession.get(sessionId);
-    if (messageId === undefined) {
-      return;
-    }
-
-    const emojiType =
-      status === 'working'
-        ? 'Typing'
-        : status === 'waiting_approval'
-          ? 'Alarm'
-          : status === 'done'
-            ? 'DONE'
-            : 'ERROR';
-
-    await app.larkAdapter.react({
-      targetMessageId: messageId,
-      emojiType,
-    });
-  }
 
   const restoreBoundProjects = async () => {
     if (projectRegistryImpl === null) {
@@ -277,7 +266,32 @@ export async function run(): Promise<void> {
         return;
       }
 
-      await reactToSessionStatus(sessionId, 'waiting_approval');
+      const approvalSummary = [
+        request.method === 'item/fileChange/requestApproval'
+          ? 'Awaiting file change approval'
+          : request.method === 'item/permissions/requestApproval'
+            ? 'Awaiting permissions approval'
+            : 'Awaiting command approval',
+        typeof request.params.command === 'string' && request.params.command.trim() !== ''
+          ? request.params.command
+          : typeof request.params.reason === 'string' && request.params.reason.trim() !== ''
+            ? request.params.reason
+            : null,
+      ].filter((value): value is string => value !== null).join(': ');
+
+      await app.reportProjectProgress({
+        projectId: projectInstanceId,
+        sessionId,
+        summary: approvalSummary,
+      });
+
+      await app.reportProjectStatus({
+        projectId: projectInstanceId,
+        sessionId,
+        status: 'waiting_approval',
+        reason: typeof request.params.reason === 'string' ? request.params.reason : 'Approval required',
+        source: 'notification',
+      });
 
       const announcement = await approvalService.registerRequest({
         requestId: request.id,
@@ -314,14 +328,31 @@ export async function run(): Promise<void> {
         fallbackText: announcement.lines.join('\n'),
       });
     },
+    onProgress: async ({ projectInstanceId, sessionId, textDelta, summary }) => {
+      await app.reportProjectProgress({
+        projectId: projectInstanceId,
+        sessionId,
+        textDelta,
+        summary,
+      });
+    },
     router: app.router,
-    onStatusChange: async ({ projectInstanceId, status }) => {
+    onStatusChange: async ({ projectInstanceId, status, reason, source }) => {
+      console.log(
+        `[codex-bridge] project status -> project=${projectInstanceId} status=${status} source=${source ?? 'unknown'} reason="${reason ?? ''}"`,
+      );
       const sessionId = await app.bindingService.getSessionByProject(projectInstanceId);
       if (sessionId === null) {
         return;
       }
 
-      await reactToSessionStatus(sessionId, status);
+      await app.reportProjectStatus({
+        projectId: projectInstanceId,
+        sessionId,
+        status,
+        reason,
+        source,
+      });
     },
   });
 
@@ -464,7 +495,7 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
     wsClient,
     eventDispatcher,
     sendMessageFn: async ({ receiveId, msgType, content }) => {
-      await restClient.im.v1.message.create({
+      const response = await restClient.im.v1.message.create({
         data: {
           receive_id: receiveId,
           msg_type: msgType,
@@ -473,6 +504,16 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
         params: {
           receive_id_type: 'chat_id',
         },
+      });
+      return {
+        messageId: response.data?.message_id,
+      };
+    },
+    updateMessageFn: async ({ messageId, msgType, content }) => {
+      void msgType;
+      await patchFeishuMessageCard(restClient, {
+        messageId,
+        content: String(content),
       });
     },
     sendReactionFn: async ({ messageId, emojiType }) => {

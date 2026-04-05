@@ -268,6 +268,7 @@ function buildRealtimeStatusPresentation(input: {
   projectTitle: string;
   status: 'working' | 'waiting_approval' | 'done' | 'failed';
   reason?: string | null;
+  completedMarkdown?: string | null;
   footerItems: CardFooterItem[];
 }) {
   if (input.status === 'waiting_approval') {
@@ -297,15 +298,16 @@ function buildRealtimeStatusPresentation(input: {
   }
 
   if (input.status === 'done') {
+    const completedMarkdown = input.completedMarkdown?.trim() || input.reason?.trim() || 'Reply delivered below.';
     return {
       card: buildBridgeStatusCard({
         projectTitle: input.projectTitle,
         statusLabel: 'Completed',
-        bodyMarkdown: 'Reply delivered below.',
+        bodyMarkdown: completedMarkdown,
         footerItems: input.footerItems,
         template: 'green',
       }),
-      fallbackText: buildCompletionStatusFallback(input.projectTitle),
+      fallbackText: completedMarkdown,
     };
   }
 
@@ -425,6 +427,7 @@ export function createBridgeApp(options: {
           projectTitle: entry.projectTitle,
           status: input.status,
           reason: input.reason,
+          completedMarkdown: input.status === 'done' ? entry.streamedReply : null,
           footerItems: entry.footerItems,
         });
     const signature = JSON.stringify({
