@@ -637,6 +637,369 @@ test('injects the bound project cwd into thread/list requests', async () => {
   assert.deepEqual(lines, ['[codex-bridge] codex ok']);
 });
 
+test('routes review without arguments to a review/start request for uncommitted changes', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    sessionId: string;
+    senderId: string;
+    projectInstanceId: string;
+    method: string;
+    params: Record<string, unknown>;
+  }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      async getLastThread(projectInstanceId: string, sessionId: string) {
+        assert.equal(projectInstanceId, 'project-a');
+        assert.equal(sessionId, 'chat-a');
+        return 'thr_current';
+      },
+    },
+    executeStructuredCodexCommand: async (input) => {
+      calls.push(input);
+      return ['[codex-bridge] codex ok'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review',
+  });
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      projectInstanceId: 'project-a',
+      method: 'review/start',
+      params: {
+        threadId: 'thr_current',
+        target: {
+          type: 'uncommittedChanges',
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+});
+
+test('routes review --base to a review/start request', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    sessionId: string;
+    senderId: string;
+    projectInstanceId: string;
+    method: string;
+    params: Record<string, unknown>;
+  }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      async getLastThread() {
+        return 'thr_current';
+      },
+    },
+    executeStructuredCodexCommand: async (input) => {
+      calls.push(input);
+      return ['[codex-bridge] codex ok'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review --base main',
+  });
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      projectInstanceId: 'project-a',
+      method: 'review/start',
+      params: {
+        threadId: 'thr_current',
+        target: {
+          type: 'baseBranch',
+          branch: 'main',
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+});
+
+test('routes review custom instructions to a review/start request', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    sessionId: string;
+    senderId: string;
+    projectInstanceId: string;
+    method: string;
+    params: Record<string, unknown>;
+  }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      async getLastThread() {
+        return 'thr_current';
+      },
+    },
+    executeStructuredCodexCommand: async (input) => {
+      calls.push(input);
+      return ['[codex-bridge] codex ok'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review focus on security and data races',
+  });
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      projectInstanceId: 'project-a',
+      method: 'review/start',
+      params: {
+        threadId: 'thr_current',
+        target: {
+          type: 'custom',
+          instructions: 'focus on security and data races',
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+});
+
+test('starts a thread for review when no current thread is recorded', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const calls: Array<{
+    sessionId: string;
+    senderId: string;
+    projectInstanceId: string;
+    method: string;
+    params: Record<string, unknown>;
+  }> = [];
+  const startCalls: Array<{ projectInstanceId: string; options?: { cwd?: string; force?: boolean } }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      getProjectConfig(projectInstanceId: string) {
+        return projectInstanceId === 'project-a'
+          ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+          : null;
+      },
+      async getLastThread() {
+        return null;
+      },
+      async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
+        startCalls.push({ projectInstanceId, options });
+        return 'thr_started_for_review';
+      },
+    },
+    executeStructuredCodexCommand: async (input) => {
+      calls.push(input);
+      return ['[codex-bridge] codex ok'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review',
+  });
+
+  assert.deepEqual(startCalls, [
+    {
+      projectInstanceId: 'project-a',
+      options: {
+        cwd: '/repo/project-a',
+        force: true,
+      },
+    },
+  ]);
+  assert.deepEqual(calls, [
+    {
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      projectInstanceId: 'project-a',
+      method: 'review/start',
+      params: {
+        threadId: 'thr_started_for_review',
+        target: {
+          type: 'uncommittedChanges',
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+});
+
+test('does not start a thread for review when codex executor support is unavailable', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  const startCalls: Array<{ projectInstanceId: string; options?: { cwd?: string; force?: boolean } }> = [];
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      getProjectConfig(projectInstanceId: string) {
+        return projectInstanceId === 'project-a'
+          ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' }
+          : null;
+      },
+      async getLastThread() {
+        return null;
+      },
+      async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
+        startCalls.push({ projectInstanceId, options });
+        return 'thr_started_for_review';
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review',
+  });
+
+  assert.deepEqual(startCalls, []);
+  assert.deepEqual(lines, [
+    '[codex-bridge] codex command support is not configured',
+    '  projectId: project-a',
+    '  command: review/start',
+  ]);
+});
+
+test('returns usage for invalid review argument combinations', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (projectInstanceId) =>
+      projectInstanceId === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({
+      async generateReply() {
+        return 'reply';
+      },
+      async stop() {},
+    }),
+  });
+  let called = false;
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: registry,
+    executeStructuredCodexCommand: async () => {
+      called = true;
+      return ['unexpected'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: 'review --base main focus on security',
+  });
+
+  assert.equal(called, false);
+  assert.deepEqual(lines, [
+    'Usage: review [--uncommitted | --base <branch> | --commit <sha> [--title <title>] | <instructions>]',
+  ]);
+});
+
 test('rejects unsupported codex commands before they reach the executor', async () => {
   const bindingService = createBindingService();
   const registry = createProjectRegistry({
@@ -693,6 +1056,7 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  review              - review the current working tree',
     '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ]);
@@ -742,6 +1106,7 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  review              - review the current working tree',
     '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ]);

@@ -20,7 +20,7 @@ export interface StructuredCodexCommandExecutionInput {
   sessionId: string;
   senderId: string;
   projectInstanceId: string;
-  method: 'app/list' | 'thread/list' | 'thread/read';
+  method: 'app/list' | 'thread/list' | 'thread/read' | 'review/start';
   params: Record<string, unknown>;
 }
 
@@ -49,7 +49,7 @@ function isBridgeCommandToken(token: string): boolean {
 
 function isCodexCommandToken(token: string): boolean {
   const root = token.split('/')[0]?.toLowerCase();
-  return root === 'app' || root === 'session' || root === 'thread';
+  return root === 'app' || root === 'session' || root === 'thread' || root === 'review';
 }
 
 const SUPPORTED_CODEX_METHODS = new Set([
@@ -60,6 +60,7 @@ const SUPPORTED_CODEX_METHODS = new Set([
   'thread/get',
   'thread/read',
   'thread/start',
+  'review',
 ] as const);
 
 type SupportedCodexMethod =
@@ -69,7 +70,10 @@ type SupportedCodexMethod =
   | 'session/get'
   | 'thread/get'
   | 'thread/read'
-  | 'thread/start';
+  | 'thread/start'
+  | 'review/start';
+
+const REVIEW_USAGE = 'Usage: review [--uncommitted | --base <branch> | --commit <sha> [--title <title>] | <instructions>]';
 
 function yesNo(value: boolean): 'yes' | 'no' {
   return value ? 'yes' : 'no';
@@ -100,6 +104,7 @@ function buildHelpLines(): string[] {
     '  session/list        - list codex sessions',
     '  thread/list         - list codex threads',
     '  session/get <id>    - get a codex session',
+    '  review              - review the current working tree',
     '  thread/start        - start a new codex thread',
     '  thread/read <id>    - get a codex thread',
   ];
@@ -204,6 +209,10 @@ function resolveCodexCommand(
   args: string[],
 ): { kind: 'supported'; method: SupportedCodexMethod; params: Record<string, unknown>; legacyArgs: string[] } | { kind: 'unsupported'; raw: string } | { kind: 'usage'; lines: string[] } {
   const normalizedCommand = command.toLowerCase();
+  if (normalizedCommand === 'review') {
+    return resolveReviewCommand(args);
+  }
+
   if (!SUPPORTED_CODEX_METHODS.has(normalizedCommand as SupportedCodexMethod)) {
     return { kind: 'unsupported', raw: command };
   }
@@ -242,6 +251,86 @@ function resolveCodexCommand(
       threadId: args[0],
     },
     legacyArgs: args.slice(0, 1),
+  };
+}
+
+function resolveReviewCommand(
+  args: string[],
+): { kind: 'supported'; method: 'review/start'; params: Record<string, unknown>; legacyArgs: string[] } | { kind: 'usage'; lines: string[] } {
+  let target: Record<string, unknown> | null = null;
+  let commitTitle: string | null = null;
+  const freeform: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--uncommitted') {
+      if (target !== null) {
+        return { kind: 'usage', lines: [REVIEW_USAGE] };
+      }
+      target = { type: 'uncommittedChanges' };
+      continue;
+    }
+
+    if (token === '--base') {
+      const branch = args[index + 1];
+      if (target !== null || branch === undefined) {
+        return { kind: 'usage', lines: [REVIEW_USAGE] };
+      }
+      target = { type: 'baseBranch', branch };
+      index += 1;
+      continue;
+    }
+
+    if (token === '--commit') {
+      const sha = args[index + 1];
+      if (target !== null || sha === undefined) {
+        return { kind: 'usage', lines: [REVIEW_USAGE] };
+      }
+      target = { type: 'commit', sha };
+      index += 1;
+      continue;
+    }
+
+    if (token === '--title') {
+      if (target?.type !== 'commit' || commitTitle !== null || index + 1 >= args.length) {
+        return { kind: 'usage', lines: [REVIEW_USAGE] };
+      }
+      commitTitle = args.slice(index + 1).join(' ');
+      index = args.length;
+      break;
+    }
+
+    if (token.startsWith('--')) {
+      return { kind: 'usage', lines: [REVIEW_USAGE] };
+    }
+
+    freeform.push(token);
+  }
+
+  if (freeform.length > 0) {
+    if (target !== null) {
+      return { kind: 'usage', lines: [REVIEW_USAGE] };
+    }
+    target = {
+      type: 'custom',
+      instructions: freeform.join(' '),
+    };
+  }
+
+  if (target === null) {
+    target = { type: 'uncommittedChanges' };
+  }
+
+  if (commitTitle !== null) {
+    target = { ...target, title: commitTitle };
+  }
+
+  return {
+    kind: 'supported',
+    method: 'review/start',
+    params: { target },
+    legacyArgs: args,
   };
 }
 
@@ -386,10 +475,35 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
         return await startNewThreadLines(dependencies, projectId);
       }
 
+      if (
+        dependencies.executeStructuredCodexCommand === undefined &&
+        dependencies.executeCodexCommand === undefined
+      ) {
+        return buildCodexSupportNotConfiguredLines(projectId, resolved.method);
+      }
+
       const params =
         resolved.method === 'thread/list' && projectConfig?.cwd !== undefined
           ? { ...resolved.params, cwd: projectConfig.cwd }
-          : resolved.params;
+          : resolved.method === 'review/start'
+            ? {
+                ...resolved.params,
+                threadId:
+                  (dependencies.projectRegistry.getLastThread === undefined
+                    ? null
+                    : await dependencies.projectRegistry.getLastThread(projectId, input.sessionId)) ??
+                  (dependencies.projectRegistry.startThread === undefined
+                    ? null
+                    : await dependencies.projectRegistry.startThread(projectId, {
+                        cwd: projectConfig?.cwd ?? undefined,
+                        force: true,
+                      })),
+              }
+            : resolved.params;
+
+      if (resolved.method === 'review/start' && typeof params.threadId !== 'string') {
+        return ['[codex-bridge] review requires an active codex thread'];
+      }
 
       if (dependencies.executeStructuredCodexCommand !== undefined) {
         return await dependencies.executeStructuredCodexCommand({
@@ -410,8 +524,6 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
           args: resolved.legacyArgs,
         });
       }
-
-      return buildCodexSupportNotConfiguredLines(projectId, resolved.method);
     },
   };
 }
