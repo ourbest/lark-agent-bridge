@@ -1,139 +1,98 @@
 # codex-bridge
 
-Bridge service for connecting Codex project instances to Feishu/Lark chats.
+Bridge service connecting Codex project instances to Feishu/Lark chat sessions. Send messages to a chat, and the bound Codex project responds.
 
-## Overview
+## Prerequisites
 
-- Manages one-to-one bindings between `projectInstanceId` and `chatId`
-- Routes inbound IM messages to the bound Codex project
-- Sends Codex replies, command results, and approval prompts back to the originating chat
-- Supports both local dev transport and real Feishu WebSocket transport
-- Connects to Codex projects lazily from `projects.json`
-
-## Requirements
-
-- Node.js 24
-- `codex` available locally if you want to run Codex app-server projects
-- `pm2` if you want process supervision and in-chat `//restart`
-
-## Scripts
-
-```bash
-npm test
-npm run dev
-npm start
-```
+- **Node.js 24**
+- **codex CLI** (if running Codex app-server projects locally)
+- **pm2** (optional, for production deployment with `//restart` support)
+- **Feishu bot app** (if using Feishu transport)
 
 ## Quick Start
 
-1. Copy [projects.json.example](/Users/yonghui/git/codex-bridge/projects.json.example) to `projects.json` and edit the project entries.
-2. Add a `.env` file if you want Feishu WebSocket transport.
-3. Start the bridge:
+### 1. Install dependencies
 
 ```bash
-npm start
+npm install
 ```
 
-By default the bridge listens on `http://127.0.0.1:3000` and stores bindings in `./data/bridge.json`.
+### 2. Configure projects
 
-## Project Configuration
+Copy the example config and edit:
 
-The bridge loads available Codex projects from `projects.json` or `BRIDGE_PROJECTS_FILE`.
+```bash
+cp projects.json.example projects.json
+```
 
-Example:
+Edit `projects.json` with your project paths:
 
 ```json
 {
   "projects": [
     {
-      "projectInstanceId": "project-a",
+      "projectInstanceId": "my-project",
       "command": "codex",
       "args": ["app-server"],
-      "cwd": "/absolute/path/to/project-a",
-      "serviceName": "project-a",
+      "cwd": "/path/to/your/project",
+      "serviceName": "my-project",
       "transport": "stdio"
     }
   ]
 }
 ```
 
-Supported fields:
+### 3. Configure Feishu (optional)
 
-- `projectInstanceId`
-- `command`
-- `args`
-- `cwd`
-- `serviceName`
-- `transport`: `stdio` or `websocket`
-- `websocketUrl`: only used for `websocket`
-
-## Transport Modes
-
-### Local Dev
-
-If `BRIDGE_FEISHU_WS_ENABLED` is not set, the bridge uses the local dev transport and logs outbound messages to stdout.
-
-### Feishu WebSocket
-
-To use the real Feishu transport, set:
+Create a `.env` file for Feishu WebSocket transport:
 
 ```bash
-FEISHU_APP_ID=...
-FEISHU_APP_SECRET=...
+FEISHU_APP_ID=your_app_id
+FEISHU_APP_SECRET=your_app_secret
 BRIDGE_FEISHU_WS_ENABLED=1
 ```
 
-Then start the bridge with `npm start`.
+If `BRIDGE_FEISHU_WS_ENABLED` is not set, the bridge runs in local dev mode — messages are logged to stdout instead of sent to Feishu.
 
-## Run with pm2
-
-For production-style runs, manage the bridge with pm2:
+### 4. Start the bridge
 
 ```bash
-pm2 start ecosystem.config.cjs
-pm2 logs codex-bridge
-pm2 save
+npm start
 ```
 
-Useful lifecycle commands:
+The bridge listens on `http://127.0.0.1:3000` and stores bindings in `./data/bridge.json`.
 
-```bash
-pm2 restart codex-bridge
-pm2 stop codex-bridge
-pm2 delete codex-bridge
-```
+## Project Configuration
 
-The bundled [ecosystem.config.cjs](/Users/yonghui/git/codex-bridge/ecosystem.config.cjs) starts the bridge via `npm start`, loads `.env`, and enables automatic restart. The in-chat `//restart` command exits the current process with code `0`, and pm2 starts a fresh bridge process immediately.
-
-## Bind a project to a chat
-
-```bash
-curl -X POST http://127.0.0.1:3000/bindings \
-  -H 'content-type: application/json' \
-  -d '{"projectInstanceId":"project-a","sessionId":"chat-a"}'
-```
-
-Lookups:
-
-```bash
-curl http://127.0.0.1:3000/bindings/project/project-a
-curl http://127.0.0.1:3000/bindings/session/chat-a
-```
+| Field | Required | Description |
+|-------|----------|-------------|
+| `projectInstanceId` | Yes | Unique identifier for the project |
+| `command` | Yes | Command to start Codex (e.g., `codex`) |
+| `args` | Yes | Arguments, typically `["app-server"]` |
+| `cwd` | Yes | Working directory for the project |
+| `serviceName` | Yes | Display name for pm2/logs |
+| `transport` | Yes | `stdio` or `websocket` |
+| `websocketUrl` | No | Required for `websocket` transport |
 
 ## Chat Commands
 
-In Feishu/Lark chats, the bridge understands:
+In a bound Feishu chat, use these commands:
 
-```text
-//bind <projectId>
-//unbind
-//list
-//sessions
-//read <path>
-//restart
-//reload projects
-//resume <threadId|last>
-//help
+| Command | Description |
+|---------|-------------|
+| `//bind <projectId>` | Bind this chat to a project |
+| `//unbind` | Unbind this chat |
+| `//list` | Show current binding |
+| `//sessions` | Show binding and project state |
+| `//read <path>` | Read a file from the project's `cwd` |
+| `//restart` | Restart the bridge (pm2 only) |
+| `//reload projects` | Reload `projects.json` |
+| `//resume <threadId\|last>` | Resume a Codex thread |
+| `//help` | Show help |
+
+Interactive commands (render as cards):
+
+```
 app/list
 session/list
 session/get <id>
@@ -142,49 +101,76 @@ thread/start
 thread/read <id>
 ```
 
-Notes:
-
-- `//help`, `//sessions`, `//read`, `app/list`, `session/*`, and `thread/*` render as interactive cards when card transport is available.
-- `//sessions` shows the bridge binding plus current Codex project state.
-- `//read <path>` reads a file under the bound project's `cwd` and returns it as a Markdown card.
-- `//reload projects` reloads `projects.json` immediately.
-- `//resume <threadId|last>` resumes the last or explicit Codex thread for the current chat.
-- `//restart` is intended for pm2-managed runs.
-
-## Console Mode
-
-Console mode lets you talk to one project directly in the terminal:
-
-```bash
-BRIDGE_CONSOLE=1 \
-BRIDGE_CONSOLE_PROJECT_INSTANCE_ID=project-a \
-BRIDGE_CODEX_CWD=/absolute/path/to/project-a \
-npm start
-```
-
 ## HTTP API
 
-- `POST /bindings`
-- `GET /bindings/project/:id`
-- `GET /bindings/session/:id`
-- `DELETE /bindings/project/:id`
-- `DELETE /bindings/session/:id`
-- `GET /health`
+```
+POST   /bindings                    # Create binding
+GET    /bindings/project/:id        # Lookup session by project
+GET    /bindings/session/:id       # Lookup project by session
+DELETE /bindings/project/:id        # Unbind project
+DELETE /bindings/session/:id        # Unbind session
+GET    /health                     # Health check
+```
 
-## Key Environment Variables
+Example:
 
-- `BRIDGE_HOST`
-- `BRIDGE_PORT`
-- `BRIDGE_STORAGE_PATH`
-- `BRIDGE_PROJECTS_FILE`
-- `FEISHU_APP_ID`
-- `FEISHU_APP_SECRET`
-- `BRIDGE_FEISHU_WS_ENABLED`
-- `BRIDGE_CODEX_PROJECTS_JSON`
-- `BRIDGE_CODEX_PROJECT_INSTANCE_ID`
-- `BRIDGE_CODEX_COMMAND`
-- `BRIDGE_CODEX_ARGS_JSON`
-- `BRIDGE_CODEX_CWD`
-- `BRIDGE_CODEX_SERVICE_NAME`
-- `BRIDGE_CODEX_TRANSPORT`
-- `BRIDGE_CODEX_WEBSOCKET_URL`
+```bash
+curl -X POST http://127.0.0.1:3000/bindings \
+  -H 'content-type: application/json' \
+  -d '{"projectInstanceId":"my-project","sessionId":"chat-id-from-feishu"}'
+```
+
+## Production Deployment with pm2
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 logs codex-bridge
+pm2 save
+```
+
+Lifecycle commands:
+
+```bash
+pm2 restart codex-bridge
+pm2 stop codex-bridge
+pm2 delete codex-bridge
+```
+
+The `//restart` command exits with code 0, and pm2 automatically starts a fresh process.
+
+## Environment Variables
+
+### Bridge server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BRIDGE_HOST` | `127.0.0.1` | Server bind host |
+| `BRIDGE_PORT` | `3000` | Server port |
+| `BRIDGE_STORAGE_PATH` | `./data/bridge.json` | Binding store path |
+| `BRIDGE_PROJECTS_FILE` | `./projects.json` | Projects config path |
+
+### Feishu
+
+| Variable | Description |
+|----------|-------------|
+| `FEISHU_APP_ID` | Feishu application App ID |
+| `FEISHU_APP_SECRET` | Feishu application App Secret |
+| `BRIDGE_FEISHU_WS_ENABLED` | Set to `1` to enable Feishu WebSocket transport |
+
+### Codex project override
+
+For single-project console mode:
+
+| Variable | Description |
+|----------|-------------|
+| `BRIDGE_CONSOLE` | Set to `1` for console mode |
+| `BRIDGE_CONSOLE_PROJECT_INSTANCE_ID` | Project to bind |
+| `BRIDGE_CODEX_CWD` | Project working directory |
+
+## Notes
+
+- Each chat can only be bound to **one** project at a time
+- Each project can be bound to **multiple** chats
+- Codex connections are established **lazily** when a chat first binds to a project
+- Connections are released when **all** bound chats are unbound
+- Internal plan documents are excluded from git (see `docs/` in `.gitignore`)
