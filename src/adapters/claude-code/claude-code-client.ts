@@ -163,10 +163,15 @@ export class ClaudeCodeClient implements CodexProjectClient {
     switch (msg.type) {
       case 'system':
         if (msg.subtype === 'init') {
+          const previousSessionId = this.sessionId;
           this.sessionId = msg.session_id ?? null;
           this.stdinReady = true;
           this.initialized = true;
           this.onThreadChanged?.(this.sessionId ?? 'default');
+          // Notify if session was restored after process restart (context lost)
+          if (previousSessionId !== null && previousSessionId !== this.sessionId) {
+            this.onNotification?.({ method: 'session/reset', params: { previousSessionId, newSessionId: this.sessionId } });
+          }
           this.onNotification?.({ method: 'system/init', params: { session_id: msg.session_id, tools: msg.message?.content } });
         } else if (msg.subtype === 'status') {
           this.onNotification?.({ method: 'system/status', params: { permissionMode: msg.request?.mode } });
@@ -206,7 +211,7 @@ export class ClaudeCodeClient implements CodexProjectClient {
           } else {
             // Final result text - already streamed via onTextDelta
             this.onTurnCompleted?.();
-            this.pendingReplyResolver?.(this.replyBuffer || msg.result ?? '');
+            this.pendingReplyResolver?.(this.replyBuffer || (msg.result ?? ''));
           }
           this.replyBuffer = '';
         }
@@ -230,12 +235,7 @@ export class ClaudeCodeClient implements CodexProjectClient {
             } as Record<string, unknown>,
           };
 
-          // Store resolver for this request
-          this.pendingRequestResolver.set(requestId, (result: unknown) => {
-            // Will be called when respondToServerRequest is invoked
-          });
-
-          // Forward to handler
+          // Forward to handler - the handler will call respondToServerRequest which sends control_response
           void this.onServerRequest(request);
         }
         break;
@@ -298,7 +298,10 @@ export class ClaudeCodeClient implements CodexProjectClient {
   }
 
   async resumeThread(input: { threadId: string; cwd?: string }): Promise<string> {
-    // Claude Code continues in the same session, threadId is the session_id
+    // Claude Code sessions cannot be restored across process restarts.
+    // The session_id is tied to the running CLI process - if it restarts,
+    // a fresh session begins with no conversation history.
+    // resumeThread here just ensures the local sessionId matches.
     if (!this.proc) {
       await this.start();
     }
@@ -314,5 +317,23 @@ export class ClaudeCodeClient implements CodexProjectClient {
       this.initialized = false;
       this.stdinReady = false;
     }
+  }
+
+  async respondToServerRequest(requestId: number | string, result: unknown): Promise<void> {
+    // Send control_response back to Claude Code via stdin
+    // result format: { behavior: 'allow' | 'deny', updatedInput?: unknown, message?: string }
+    const response = result as { behavior?: string; updatedInput?: unknown; message?: string };
+    this.sendMessage({
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: String(requestId),
+        response: {
+          behavior: response.behavior ?? 'allow',
+          ...(response.updatedInput !== undefined ? { updatedInput: response.updatedInput } : {}),
+          ...(response.message !== undefined ? { message: response.message } : {}),
+        },
+      },
+    });
   }
 }

@@ -246,6 +246,7 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
             serviceName: 'codex-bridge',
             transport: 'websocket',
             websocketUrl: 'ws://127.0.0.1:4000',
+            adapterType: 'codex',
           },
         ],
       },

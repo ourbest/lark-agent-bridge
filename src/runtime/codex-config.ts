@@ -43,10 +43,8 @@ export function writeProjectsFile(filePath: string, projects: ProjectConfigEntry
   const snapshot = {
     projects: projects.map((entry) => {
       const serializedCwd = readSerializedCwd(entry);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { adapterType, ...rest } = entry;
       return {
-        ...rest,
+        ...entry,
         ...(serializedCwd !== undefined ? { cwd: serializedCwd } : {}),
       };
     }),
