@@ -22,6 +22,7 @@ export interface CodexRuntimeConfig {
   serviceName: string;
   transport: 'stdio' | 'websocket';
   websocketUrl?: string;
+  adapterType?: 'codex' | 'claude-code';
 }
 
 const SERIALIZED_CWD = Symbol('serializedCwd');
@@ -42,8 +43,10 @@ export function writeProjectsFile(filePath: string, projects: ProjectConfigEntry
   const snapshot = {
     projects: projects.map((entry) => {
       const serializedCwd = readSerializedCwd(entry);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { adapterType, ...rest } = entry;
       return {
-        ...entry,
+        ...rest,
         ...(serializedCwd !== undefined ? { cwd: serializedCwd } : {}),
       };
     }),
@@ -124,7 +127,8 @@ function parseArgs(value: string | undefined): string[] {
 function normalizeProjectConfig(input: Partial<CodexRuntimeConfig> & { projectInstanceId: string }): CodexRuntimeConfig {
   const transport = input.transport ?? 'websocket';
   const model = input.model?.trim();
-  return {
+  const adapterType = input.adapterType ?? 'codex';
+  const result: CodexRuntimeConfig = {
     projectInstanceId: input.projectInstanceId.trim(),
     command: input.command?.trim() || 'codex',
     args: input.args ?? ['app-server'],
@@ -133,7 +137,9 @@ function normalizeProjectConfig(input: Partial<CodexRuntimeConfig> & { projectIn
     serviceName: input.serviceName?.trim() || 'codex-bridge',
     transport,
     websocketUrl: transport === 'stdio' ? undefined : input.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
+    adapterType,
   };
+  return result;
 }
 
 function createProjectConfigEntry(entry: CodexRuntimeConfig, serializedCwd?: string): ProjectConfigEntry {
@@ -180,6 +186,7 @@ function parseProjectConfigs(value: string | undefined): CodexRuntimeConfig[] | 
       transport: record.transport ?? 'websocket',
       websocketUrl:
         (record.transport ?? 'websocket') === 'stdio' ? undefined : record.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
+      adapterType: record.adapterType ?? 'codex',
     };
   });
 }

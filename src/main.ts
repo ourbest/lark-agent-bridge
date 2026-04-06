@@ -11,6 +11,7 @@ import {
 } from './runtime/bootstrap.ts';
 import { loadProjectsFromFile, resolveCodexRuntimeConfigs, type ProjectConfigEntry, writeProjectsFile } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
+import { ClaudeCodeClient } from './adapters/claude-code/index.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
 import { createProjectRegistry } from './runtime/project-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
@@ -414,8 +415,15 @@ export async function run(): Promise<void> {
       if (!entry) return null;
       return entry;
     },
-    createClient: (projectInstanceId: string, config) =>
-      new CodexAppServerClient({
+    createClient: (projectInstanceId: string, config) => {
+      if (config.adapterType === 'claude-code') {
+        return new ClaudeCodeClient({
+          command: 'claude',
+          args: ['--output-format', 'stream-json', '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio', '--verbose'],
+          cwd: config.cwd,
+        });
+      }
+      return new CodexAppServerClient({
         command: config.command,
         args: config.args,
         cwd: config.cwd,
@@ -424,7 +432,8 @@ export async function run(): Promise<void> {
         serviceName: config.serviceName,
         transport: config.transport,
         websocketUrl: config.websocketUrl,
-      }),
+      });
+    },
     getLastThread: (projectInstanceId: string, sessionId: string) =>
       bridgeStore.getLastThreadId(projectInstanceId, sessionId),
     setLastThread: (projectInstanceId: string, sessionId: string, threadId: string) =>

@@ -24,6 +24,7 @@ test('resolves codex runtime config from environment defaults', () => {
       serviceName: 'codex-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
+      adapterType: 'codex',
     },
   );
 });
@@ -45,6 +46,7 @@ test('resolves websocket transport from environment override', () => {
       serviceName: 'codex-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4567',
+      adapterType: 'codex',
     },
   );
 });
@@ -73,6 +75,7 @@ test('resolves multiple codex runtime configs from environment json', () => {
         serviceName: 'codex-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
+        adapterType: 'codex',
       },
       {
         projectInstanceId: 'project-b',
@@ -82,6 +85,7 @@ test('resolves multiple codex runtime configs from environment json', () => {
         serviceName: 'codex-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
+        adapterType: 'codex',
       },
     ],
   );
@@ -135,6 +139,7 @@ test('loads stdio project configs from projects file shape', () => {
       serviceName: 'codex-bridge-a',
       transport: 'stdio',
       websocketUrl: undefined,
+      adapterType: 'codex',
     },
   ]);
 
@@ -219,6 +224,7 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
         serviceName: 'codex-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
+        adapterType: 'codex',
       },
     ]);
 
@@ -270,6 +276,7 @@ test('expands tilde cwd values from project config files', () => {
         serviceName: 'codex-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
+        adapterType: 'codex',
       },
     ],
   );
@@ -287,6 +294,7 @@ test('keeps the last valid projects snapshot when reload encounters invalid json
       serviceName: 'codex-bridge',
       transport: 'websocket' as const,
       websocketUrl: 'ws://127.0.0.1:4000',
+      adapterType: 'codex' as const,
     },
   ];
 
