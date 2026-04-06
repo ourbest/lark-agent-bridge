@@ -6,4 +6,5 @@ coverage/
 .env
 .codex/
 data/
+docs/
 projects.json
