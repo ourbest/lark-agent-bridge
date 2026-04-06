@@ -320,18 +320,41 @@ export class ClaudeCodeClient implements CodexProjectClient {
   }
 
   async respondToServerRequest(requestId: number | string, result: unknown): Promise<void> {
-    // Send control_response back to Claude Code via stdin
-    // result format: { behavior: 'allow' | 'deny', updatedInput?: unknown, message?: string }
-    const response = result as { behavior?: string; updatedInput?: unknown; message?: string };
+    // Map bridge approval response format to Claude Code control_response format.
+    // ApprovalService returns:
+    //   { decision: 'accept' | 'acceptForSession' | 'decline' }  - for command/file
+    //   { permissions: {...}, scope: 'turn' | 'session' }        - for permissions
+    let behavior = 'allow';
+    let message: string | undefined;
+
+    if (result !== null && typeof result === 'object') {
+      const r = result as { decision?: string; permissions?: unknown; scope?: string; message?: string };
+
+      if ('decision' in r) {
+        // { decision: 'accept' | 'acceptForSession' | 'decline' }
+        if (r.decision === 'decline') {
+          behavior = 'deny';
+        } else {
+          behavior = 'allow'; // 'accept' and 'acceptForSession' both allow
+        }
+        if (typeof r.message === 'string') {
+          message = r.message;
+        }
+      } else if ('permissions' in r) {
+        // Permissions response - Claude Code doesn't have a direct equivalent
+        // so we allow with empty permissions scope
+        behavior = 'allow';
+      }
+    }
+
     this.sendMessage({
       type: 'control_response',
       response: {
         subtype: 'success',
         request_id: String(requestId),
         response: {
-          behavior: response.behavior ?? 'allow',
-          ...(response.updatedInput !== undefined ? { updatedInput: response.updatedInput } : {}),
-          ...(response.message !== undefined ? { message: response.message } : {}),
+          behavior,
+          ...(message !== undefined ? { message } : {}),
         },
       },
     });
