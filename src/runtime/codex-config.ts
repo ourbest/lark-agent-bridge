@@ -11,6 +11,7 @@ export interface RuntimeEnvCodexConfig {
   BRIDGE_CODEX_SERVICE_NAME?: string;
   BRIDGE_CODEX_TRANSPORT?: string;
   BRIDGE_CODEX_WEBSOCKET_URL?: string;
+  BRIDGE_CODEX_QWEN_EXECUTABLE?: string;
 }
 
 export interface CodexRuntimeConfig {
@@ -22,7 +23,8 @@ export interface CodexRuntimeConfig {
   serviceName: string;
   transport: 'stdio' | 'websocket';
   websocketUrl?: string;
-  adapterType?: 'codex' | 'claude-code';
+  adapterType?: 'codex' | 'claude-code' | 'qwen-code';
+  qwenExecutable?: string;
 }
 
 const SERIALIZED_CWD = Symbol('serializedCwd');
@@ -136,6 +138,7 @@ function normalizeProjectConfig(input: Partial<CodexRuntimeConfig> & { projectIn
     transport,
     websocketUrl: transport === 'stdio' ? undefined : input.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
     adapterType,
+    ...(input.qwenExecutable?.trim() ? { qwenExecutable: input.qwenExecutable.trim() } : {}),
   };
   return result;
 }
@@ -185,6 +188,7 @@ function parseProjectConfigs(value: string | undefined): CodexRuntimeConfig[] | 
       websocketUrl:
         (record.transport ?? 'websocket') === 'stdio' ? undefined : record.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
       adapterType: record.adapterType ?? 'codex',
+      ...(record.qwenExecutable?.trim() ? { qwenExecutable: record.qwenExecutable.trim() } : {}),
     };
   });
 }
@@ -204,19 +208,20 @@ export function resolveCodexRuntimeConfigs(env: RuntimeEnvCodexConfig = process.
     return null;
   }
 
-  return [
-    normalizeProjectConfig({
-      projectInstanceId,
-      command: env.BRIDGE_CODEX_COMMAND?.trim() || 'codex',
-      args: parseArgs(env.BRIDGE_CODEX_ARGS_JSON),
-      cwd: resolvePathLikeInput(env.BRIDGE_CODEX_CWD, env.HOME ?? process.env.HOME),
-      model: env.BRIDGE_CODEX_MODEL?.trim(),
-      serviceName: env.BRIDGE_CODEX_SERVICE_NAME?.trim() || 'codex-bridge',
-      transport: env.BRIDGE_CODEX_TRANSPORT?.trim() === 'stdio' ? 'stdio' : 'websocket',
-      websocketUrl: resolveWebSocketUrl(env),
-    }),
-  ];
-}
+    return [
+      normalizeProjectConfig({
+        projectInstanceId,
+        command: env.BRIDGE_CODEX_COMMAND?.trim() || 'codex',
+        args: parseArgs(env.BRIDGE_CODEX_ARGS_JSON),
+        cwd: resolvePathLikeInput(env.BRIDGE_CODEX_CWD, env.HOME ?? process.env.HOME),
+        model: env.BRIDGE_CODEX_MODEL?.trim(),
+        serviceName: env.BRIDGE_CODEX_SERVICE_NAME?.trim() || 'codex-bridge',
+        transport: env.BRIDGE_CODEX_TRANSPORT?.trim() === 'stdio' ? 'stdio' : 'websocket',
+        websocketUrl: resolveWebSocketUrl(env),
+        qwenExecutable: env.BRIDGE_CODEX_QWEN_EXECUTABLE?.trim(),
+      }),
+    ];
+  }
 
 export function resolveCodexRuntimeConfig(env: RuntimeEnvCodexConfig = process.env): CodexRuntimeConfig | null {
   return resolveCodexRuntimeConfigs(env)?.[0] ?? null;
@@ -231,6 +236,7 @@ export function createCodexRuntimeConfig(input: {
   serviceName?: string;
   transport?: 'stdio' | 'websocket';
   websocketUrl?: string;
+  qwenExecutable?: string;
 }): CodexRuntimeConfig {
   const model = input.model?.trim();
   const entry = {

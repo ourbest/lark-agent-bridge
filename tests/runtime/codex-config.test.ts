@@ -51,6 +51,26 @@ test('resolves websocket transport from environment override', () => {
   );
 });
 
+test('resolves qwen executable from environment override', () => {
+  assert.deepEqual(
+    resolveCodexRuntimeConfig({
+      BRIDGE_CODEX_PROJECT_INSTANCE_ID: 'project-a',
+      BRIDGE_CODEX_QWEN_EXECUTABLE: '/opt/homebrew/bin/qwen',
+    }),
+    {
+      projectInstanceId: 'project-a',
+      command: 'codex',
+      args: ['app-server'],
+      cwd: undefined,
+      serviceName: 'codex-bridge',
+      transport: 'websocket',
+      websocketUrl: 'ws://127.0.0.1:4000',
+      adapterType: 'codex',
+      qwenExecutable: '/opt/homebrew/bin/qwen',
+    },
+  );
+});
+
 test('resolves multiple codex runtime configs from environment json', () => {
   assert.deepEqual(
     resolveCodexRuntimeConfigs({

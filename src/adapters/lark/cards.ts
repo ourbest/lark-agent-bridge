@@ -3,6 +3,7 @@ type CardTextItem = { tag: 'plain_text'; content?: string; lines?: number } | { 
 export interface FeishuInteractiveCardContent {
   schema?: '2.0' | '1.0';
   config?: {
+    wide_screen_mode?: boolean;
     enable_forward?: boolean;
     enable_forward_interaction?: boolean;
     update_multi?: boolean;
@@ -26,12 +27,6 @@ export interface FeishuInteractiveCardMessage {
 export interface CardFooterItem {
   label: string;
   value: string;
-}
-
-export interface ApprovalCardButton {
-  label: string;
-  command: string;
-  type?: 'default' | 'primary' | 'danger';
 }
 
 function plainText(content: string): CardTextItem {
@@ -215,13 +210,24 @@ export function buildApprovalCard(input: {
   subtitle?: string;
   bodyMarkdown: string;
   footerItems: CardFooterItem[];
-  buttons: ApprovalCardButton[];
 }): FeishuInteractiveCardMessage {
+  const elements: Array<Record<string, unknown>> = [
+    {
+      tag: 'markdown',
+      content: input.bodyMarkdown,
+    },
+    {
+      tag: 'hr',
+    },
+    buildFooterMarkdown(input.footerItems),
+  ];
+
   return buildInteractiveCardMessage({
     schema: '2.0',
     config: {
       enable_forward: true,
       update_multi: true,
+      wide_screen_mode: true,
       width_mode: 'fill',
     },
     header: {
@@ -230,28 +236,7 @@ export function buildApprovalCard(input: {
       subtitle: input.subtitle ? plainText(input.subtitle) : undefined,
     },
     body: {
-      elements: [
-        {
-          tag: 'markdown',
-          content: input.bodyMarkdown,
-        },
-        {
-          tag: 'hr',
-        },
-        buildFooterMarkdown(input.footerItems),
-        {
-          tag: 'action',
-          layout: 'bisected',
-          actions: input.buttons.map((button) => ({
-            tag: 'button',
-            text: plainText(button.label),
-            type: button.type ?? 'default',
-            value: {
-              command: button.command,
-            },
-          })),
-        },
-      ],
+      elements,
     },
   });
 }

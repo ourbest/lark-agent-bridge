@@ -12,6 +12,7 @@ import {
 import { loadProjectsFromFile, resolveCodexRuntimeConfigs, type ProjectConfigEntry, writeProjectsFile } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
 import { ClaudeCodeClient } from './adapters/claude-code/index.ts';
+import { QwenCodeClient } from './adapters/qwen-code/index.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
 import { createProjectRegistry } from './runtime/project-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
@@ -22,6 +23,59 @@ import { buildStartupNotificationCard } from './adapters/lark/cards.ts';
 import { JsonBindingStore } from './storage/json-binding-store.ts';
 import { createApprovalService } from './runtime/approval-service.ts';
 import { defaultHttpInstance, LoggerLevel, WSClient, EventDispatcher, Client } from '@larksuiteoapi/node-sdk';
+
+/**
+ * Extract a human-readable command string from Claude Code request params.
+ * Claude Code sends tool input as an object (e.g., { command: "ls -la" } for Bash).
+ */
+function extractCommandFromParams(params: Record<string, unknown>): string | null {
+  // First check if there's a direct command param (Codex protocol)
+  if (typeof params.command === 'string' && params.command.trim() !== '') {
+    return params.command;
+  }
+
+  // Claude Code sends input as an object with tool-specific fields
+  const input = params.input;
+  if (typeof input === 'object' && input !== null) {
+    const inputRecord = input as Record<string, unknown>;
+
+    // Bash: { command: "..." }
+    if (typeof inputRecord.command === 'string') {
+      return inputRecord.command;
+    }
+
+    // Edit: { file_path: "...", old_string: "...", new_string: "..." }
+    if (typeof inputRecord.file_path === 'string') {
+      const ops: string[] = [];
+      if (typeof inputRecord.old_string === 'string') {
+        ops.push(`- "${inputRecord.old_string.slice(0, 50)}"`);
+      }
+      if (typeof inputRecord.new_string === 'string') {
+        ops.push(`+ "${inputRecord.new_string.slice(0, 50)}"`);
+      }
+      if (ops.length > 0) {
+        return `edit ${inputRecord.file_path}: ${ops.join(' ')}`;
+      }
+      return `edit ${inputRecord.file_path}`;
+    }
+
+    // Read: { file_path: "..." }
+    if (typeof inputRecord.file_path === 'string') {
+      return `read ${inputRecord.file_path}`;
+    }
+
+    // Grep: { path: "...", pattern: "..." }
+    if (typeof inputRecord.pattern === 'string') {
+      return `grep "${inputRecord.pattern}" ${typeof inputRecord.path === 'string' ? inputRecord.path : ''}`.trim();
+    }
+
+    // Fallback: stringify the input object (truncated)
+    const str = JSON.stringify(inputRecord);
+    return str.length > 100 ? str.slice(0, 100) + '...' : str;
+  }
+
+  return null;
+}
 
 export async function patchFeishuMessageCard(
   client: Pick<Client, 'request'>,
@@ -423,6 +477,13 @@ export async function run(): Promise<void> {
           cwd: config.cwd,
         });
       }
+      if (config.adapterType === 'qwen-code') {
+        return new QwenCodeClient({
+          cwd: config.cwd,
+          model: config.model,
+          pathToQwenExecutable: config.qwenExecutable ?? (config.command !== 'codex' ? config.command : undefined),
+        });
+      }
       return new CodexAppServerClient({
         command: config.command,
         args: config.args,
@@ -457,20 +518,6 @@ export async function run(): Promise<void> {
             : null,
       ].filter((value): value is string => value !== null).join(': ');
 
-      await app.reportProjectProgress({
-        projectId: projectInstanceId,
-        sessionId,
-        summary: approvalSummary,
-      });
-
-      await app.reportProjectStatus({
-        projectId: projectInstanceId,
-        sessionId,
-        status: 'waiting_approval',
-        reason: typeof request.params.reason === 'string' ? request.params.reason : 'Approval required',
-        source: 'notification',
-      });
-
       const announcement = await approvalService.registerRequest({
         requestId: request.id,
         projectInstanceId,
@@ -484,10 +531,11 @@ export async function run(): Promise<void> {
             : request.method === 'item/permissions/requestApproval'
               ? 'permissions'
               : 'commandExecution',
-        command: typeof request.params.command === 'string' ? request.params.command : null,
+        command: extractCommandFromParams(request.params),
         cwd: typeof request.params.cwd === 'string' ? request.params.cwd : null,
         grantRoot: typeof request.params.grantRoot === 'string' ? request.params.grantRoot : null,
         reason: typeof request.params.reason === 'string' ? request.params.reason : null,
+        toolName: typeof request.params.tool_name === 'string' ? request.params.tool_name : null,
         permissions:
           request.method === 'item/permissions/requestApproval' && request.params.permissions !== undefined
             ? (request.params.permissions as {
@@ -500,11 +548,27 @@ export async function run(): Promise<void> {
         },
       });
 
-      await app.larkAdapter.sendCard({
-        targetSessionId: sessionId,
-        card: announcement.card,
-        fallbackText: announcement.lines.join('\n'),
-      });
+      if (announcement.card !== null) {
+        await app.reportProjectProgress({
+          projectId: projectInstanceId,
+          sessionId,
+          summary: approvalSummary,
+        });
+
+        await app.reportProjectStatus({
+          projectId: projectInstanceId,
+          sessionId,
+          status: 'waiting_approval',
+          reason: typeof request.params.reason === 'string' ? request.params.reason : 'Approval required',
+          source: 'notification',
+        });
+
+        await app.larkAdapter.sendCard({
+          targetSessionId: sessionId,
+          card: announcement.card,
+          fallbackText: announcement.lines.join('\n'),
+        });
+      }
     },
     onProgress: async ({ projectInstanceId, sessionId, textDelta, summary }) => {
       await app.reportProjectProgress({

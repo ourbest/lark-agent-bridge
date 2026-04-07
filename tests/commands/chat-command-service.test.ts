@@ -59,7 +59,7 @@ test('routes approval commands through the approval service', async () => {
 
   assert.deepEqual(listLines, [
     '[codex-bridge] pending approvals:',
-    '  42 | command execution | project-a | thr_123/turn_1',
+    '  42 | command execution | project-a',
   ]);
 
   const approveLines = await service.execute({
@@ -77,6 +77,32 @@ test('routes approval commands through the approval service', async () => {
       },
     },
   ]);
+});
+
+test('shows approve-auto in help output', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//help',
+  });
+
+  assert.ok(lines?.some((line) => line.includes('//approve-auto <minutes>')));
 });
 
 test('resumes a thread by explicit id for the bound chat', async () => {
@@ -468,6 +494,7 @@ test('rejects bare codex commands without the // prefix', async () => {
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
+    '  //approve-auto <minutes> - auto-approve this chat for N minutes',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -1174,6 +1201,7 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
+    '  //approve-auto <minutes> - auto-approve this chat for N minutes',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -1223,6 +1251,7 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
+    '  //approve-auto <minutes> - auto-approve this chat for N minutes',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',

@@ -12,7 +12,6 @@ export interface ClaudeCodeClientOptions {
   onNotification?: ((message: { method: string; params?: Record<string, unknown> }) => void | Promise<void>) | null;
   onServerRequest?: ((request: CodexServerRequest) => void | Promise<void>) | null;
   onThreadChanged?: ((threadId: string) => void) | null;
-  respondToServerRequest?: (requestId: number | string, result: unknown) => Promise<void>;
 }
 
 interface ClaudeCodeMessage {
@@ -66,13 +65,14 @@ export class ClaudeCodeClient implements CodexProjectClient {
   onNotification: ((message: { method: string; params?: Record<string, unknown> }) => void | Promise<void>) | null;
   onServerRequest: ((request: CodexServerRequest) => void | Promise<void>) | null;
   onThreadChanged: ((threadId: string) => void) | null;
-  respondToServerRequest: ((requestId: number | string, result: unknown) => Promise<void>) | null;
 
   private sessionId: string | null = null;
   private replyBuffer = '';
   private pendingReplyResolver: ((value: string) => void) | null = null;
   private pendingReplyRejecter: ((error: Error) => void) | null = null;
   private pendingRequestResolver: Map<string, (result: unknown) => void> = new Map();
+  private pendingServerRequests: Map<string, { toolName?: string; input?: unknown }> = new Map();
+  private sessionApprovedRequestSignatures: Set<string> = new Set();
   private stdinReady = false;
   private initialized = false;
 
@@ -86,7 +86,6 @@ export class ClaudeCodeClient implements CodexProjectClient {
     this.onNotification = options.onNotification ?? null;
     this.onServerRequest = options.onServerRequest ?? null;
     this.onThreadChanged = options.onThreadChanged ?? null;
-    this.respondToServerRequest = options.respondToServerRequest ?? null;
   }
 
   async start(): Promise<void> {
@@ -229,8 +228,16 @@ export class ClaudeCodeClient implements CodexProjectClient {
 
       case 'control_request':
         // Permission request from Claude Code
+        console.log(`[claude-code] control_request: subtype=${msg.request?.subtype}, request_id=${msg.request_id}`);
         if (msg.request && this.onServerRequest) {
           const requestId = msg.request_id ?? '';
+          const requestKey = String(requestId);
+          const pendingRequest = {
+            toolName: msg.request.tool_name,
+            input: msg.request.input,
+          };
+          this.pendingServerRequests.set(requestKey, pendingRequest);
+          const signature = this.buildApprovalSignature(pendingRequest);
           const request: CodexServerRequest = {
             id: requestId,
             method: `item/${msg.request.subtype}/requestApproval`,
@@ -242,8 +249,17 @@ export class ClaudeCodeClient implements CodexProjectClient {
               blocked_path: msg.request.blocked_path,
               decision_reason: msg.request.decision_reason,
               mode: msg.request.mode,
+              // Claude Code doesn't provide threadId/turnId/itemId - use sessionId as threadId
+              threadId: this.sessionId ?? undefined,
+              turnId: msg.uuid ?? undefined,
+              itemId: msg.request.tool_use_id ?? undefined,
             } as Record<string, unknown>,
           };
+
+          if (signature !== null && this.sessionApprovedRequestSignatures.has(signature)) {
+            void this.respondToServerRequest(request.id, { decision: 'acceptForSession' });
+            return;
+          }
 
           // Forward to handler - the handler will call respondToServerRequest which sends control_response
           try {
@@ -251,6 +267,8 @@ export class ClaudeCodeClient implements CodexProjectClient {
           } catch (err) {
             console.error(`[claude-code] onServerRequest error: ${err}`);
           }
+        } else {
+          console.log(`[claude-code] control_request ignored: no handler or no request`);
         }
         break;
 
@@ -339,12 +357,16 @@ export class ClaudeCodeClient implements CodexProjectClient {
   }
 
   async respondToServerRequest(requestId: number | string, result: unknown): Promise<void> {
+    console.log(`[claude-code] respondToServerRequest called: requestId=${requestId}, result=${JSON.stringify(result)}`);
     // Map bridge approval response format to Claude Code control_response format.
     // ApprovalService returns:
     //   { decision: 'accept' | 'acceptForSession' | 'decline' }  - for command/file
     //   { permissions: {...}, scope: 'turn' | 'session' }        - for permissions
     let behavior = 'allow';
     let message: string | undefined;
+    const requestKey = String(requestId);
+    const pendingRequest = this.pendingServerRequests.get(requestKey) ?? null;
+    const signature = this.buildApprovalSignature(pendingRequest);
 
     if (result !== null && typeof result === 'object') {
       const r = result as { decision?: string; permissions?: unknown; scope?: string; message?: string };
@@ -359,13 +381,20 @@ export class ClaudeCodeClient implements CodexProjectClient {
         if (typeof r.message === 'string') {
           message = r.message;
         }
+        if (r.decision === 'acceptForSession' && signature !== null) {
+          this.sessionApprovedRequestSignatures.add(signature);
+        }
       } else if ('permissions' in r) {
         // Permissions response - Claude Code doesn't have a direct equivalent
         // so we allow with empty permissions scope
         behavior = 'allow';
+        if (r.scope === 'session' && signature !== null) {
+          this.sessionApprovedRequestSignatures.add(signature);
+        }
       }
     }
 
+    console.log(`[claude-code] sending control_response: behavior=${behavior}`);
     try {
       this.sendMessage({
         type: 'control_response',
@@ -374,12 +403,27 @@ export class ClaudeCodeClient implements CodexProjectClient {
           request_id: String(requestId),
           response: {
             behavior,
+            ...(pendingRequest?.input !== undefined ? { updatedInput: pendingRequest.input } : {}),
             ...(message !== undefined ? { message } : {}),
           },
         },
       });
+      this.pendingServerRequests.delete(requestKey);
     } catch (err) {
       console.error(`[claude-code] failed to send control_response: ${err}`);
     }
+  }
+
+  private buildApprovalSignature(request: { toolName?: string; input?: unknown } | null): string | null {
+    if (request === null) {
+      return null;
+    }
+
+    const toolName = typeof request.toolName === 'string' ? request.toolName.trim() : '';
+    if (toolName === '') {
+      return null;
+    }
+
+    return `${toolName}:${JSON.stringify(request.input ?? null)}`;
   }
 }

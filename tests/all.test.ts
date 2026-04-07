@@ -5,6 +5,7 @@ import './adapters/lark/adapter.test.ts';
 import './adapters/lark/md-to-feishu.test.ts';
 import './adapters/codex/app-server-client.test.ts';
 import './adapters/codex/app-server-client-approval.test.ts';
+import './adapters/qwen-code/qwen-code-client.test.ts';
 import './commands/chat-command-service.test.ts';
 import './storage/json-binding-store.test.ts';
 import './runtime/approval-service.test.ts';

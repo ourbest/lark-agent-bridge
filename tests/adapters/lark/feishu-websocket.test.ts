@@ -204,6 +204,39 @@ test('sends interactive cards through sendMessageFn', async () => {
   });
 });
 
+test('swallows sendMessageFn failures while sending interactive cards', async () => {
+  registeredHandlers = {};
+  let called = false;
+
+  const transport = createFeishuWebSocketTransport({
+    appId: 'cli_test',
+    appSecret: 'secret',
+    wsClient: mockWsClient as never,
+    eventDispatcher: mockEventDispatcher as never,
+    sendMessageFn: async () => {
+      called = true;
+      throw new Error('Request failed with status code 400');
+    },
+    sendReactionFn: mockSendReaction as never,
+  });
+
+  const result = await transport.sendCard({
+    sessionId: 'chat_abc',
+    card: {
+      msg_type: 'interactive',
+      content: JSON.stringify({
+        header: {
+          template: 'blue',
+          title: { tag: 'plain_text', content: 'project-a' },
+        },
+      }),
+    },
+  });
+
+  assert.equal(called, true);
+  assert.equal(result, undefined);
+});
+
 test('updates interactive cards through updateMessageFn', async () => {
   registeredHandlers = {};
   let updatedMessageId: string | null = null;

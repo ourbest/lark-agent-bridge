@@ -95,6 +95,7 @@ function buildHelpLines(): string[] {
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
+    '  //approve-auto <minutes> - auto-approve this chat for N minutes',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',

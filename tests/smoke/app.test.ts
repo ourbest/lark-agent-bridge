@@ -1083,6 +1083,7 @@ test('renders //help as an interactive card for easier reading', async () => {
   assert.equal(card.header?.title?.content, 'codex-bridge help');
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//new')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//approve-auto <minutes>')));
 
   await app.stop();
 });

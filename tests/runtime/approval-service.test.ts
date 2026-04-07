@@ -24,6 +24,7 @@ test('registers approval requests and resolves approve-all for command execution
 
   assert.deepEqual(announcement.lines, [
     '[codex-bridge] Approval required:',
+    '  Request ID: 99',
     '  kind: command execution',
     '  projectId: project-a',
     '  chatId: chat-a',
@@ -39,10 +40,12 @@ test('registers approval requests and resolves approve-all for command execution
   assert.equal(announcement.card.msg_type, 'interactive');
   const card = JSON.parse(announcement.card.content) as {
     header?: { title?: { content?: string } };
-    body?: { elements?: Array<{ tag?: string }> };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
   assert.equal(card.header?.title?.content, 'Approval required');
-  assert.ok(card.body?.elements?.some((element) => element.tag === 'action'));
+  assert.equal(card.body?.elements?.some((element) => element.tag === 'action' || element.tag === 'button'), false);
+  assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Request ID:** 99')));
+  assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Command:**')));
 
   const lines = await service.handleCommand({
     sessionId: 'chat-a',
@@ -89,6 +92,7 @@ test('denies permissions requests by returning an empty grant', async () => {
 
   assert.deepEqual(announcement.lines, [
     '[codex-bridge] Approval required:',
+    '  Request ID: perm-1',
     '  kind: permissions',
     '  projectId: project-a',
     '  chatId: chat-a',
@@ -107,6 +111,12 @@ test('denies permissions requests by returning an empty grant', async () => {
     '  deny: //deny perm-1',
   ]);
   assert.equal(announcement.card.msg_type, 'interactive');
+  const card = JSON.parse(announcement.card.content) as {
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(card.body?.elements?.some((element) => element.tag === 'action' || element.tag === 'button'), false);
+  assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Request ID:** perm-1')));
+  assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Kind:**')));
 
   const lines = await service.handleCommand({
     sessionId: 'chat-a',
@@ -123,4 +133,94 @@ test('denies permissions requests by returning an empty grant', async () => {
       },
     },
   ]);
+});
+
+test('approve-auto accepts current-session requests within the configured window', async () => {
+  let now = 1_000_000;
+  const responses: Array<{ requestId: string; result: unknown }> = [];
+  const service = createApprovalService({
+    now: () => now,
+  });
+
+  const pending = await service.registerRequest({
+    requestId: 'pending-1',
+    projectInstanceId: 'project-a',
+    sessionId: 'chat-a',
+    threadId: 'thr_123',
+    turnId: 'turn_1',
+    itemId: 'item-1',
+    kind: 'commandExecution',
+    command: 'git add app/pom.xml',
+    respond: async (requestId, result) => {
+      responses.push({ requestId: String(requestId), result });
+    },
+  });
+
+  assert.notEqual(pending.card, null);
+
+  const enableLines = await service.handleCommand({
+    sessionId: 'chat-a',
+    text: '//approve-auto 30',
+  });
+
+  assert.deepEqual(enableLines, [
+    '[codex-bridge] enabled auto-approval for this chat for 30 minutes',
+    '[codex-bridge] auto-approved 1 pending request(s): pending-1',
+  ]);
+  assert.deepEqual(responses, [
+    {
+      requestId: 'pending-1',
+      result: {
+        decision: 'acceptForSession',
+      },
+    },
+  ]);
+
+  const future = await service.registerRequest({
+    requestId: 'future-1',
+    projectInstanceId: 'project-a',
+    sessionId: 'chat-a',
+    threadId: 'thr_123',
+    turnId: 'turn_2',
+    itemId: 'item-2',
+    kind: 'commandExecution',
+    command: 'rm -rf /tmp/example',
+    respond: async (requestId, result) => {
+      responses.push({ requestId: String(requestId), result });
+    },
+  });
+
+  assert.equal(future.card, null);
+  assert.deepEqual(responses, [
+    {
+      requestId: 'pending-1',
+      result: {
+        decision: 'acceptForSession',
+      },
+    },
+    {
+      requestId: 'future-1',
+      result: {
+        decision: 'acceptForSession',
+      },
+    },
+  ]);
+
+  now += 31 * 60 * 1000;
+
+  const expired = await service.registerRequest({
+    requestId: 'future-2',
+    projectInstanceId: 'project-a',
+    sessionId: 'chat-a',
+    threadId: 'thr_123',
+    turnId: 'turn_3',
+    itemId: 'item-3',
+    kind: 'commandExecution',
+    command: 'touch /tmp/after-expiry',
+    respond: async (requestId, result) => {
+      responses.push({ requestId: String(requestId), result });
+    },
+  });
+
+  assert.notEqual(expired.card, null);
 });

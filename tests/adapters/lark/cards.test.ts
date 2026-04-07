@@ -35,7 +35,6 @@ test('keeps fenced code blocks intact while rewriting inline code spans', () => 
       title: 'Approval required',
       bodyMarkdown: '```bash\nprintf "`keep`"\n```\nOutside `git status`.',
       footerItems: [{ label: 'Chat', value: 'session-a' }],
-      buttons: [{ label: 'Approve', command: '//approve 1' }],
     }).content,
   ) as {
     body?: { elements?: Array<{ tag?: string; content?: string }> };
@@ -46,6 +45,25 @@ test('keeps fenced code blocks intact while rewriting inline code spans', () => 
   assert.match(approvalBody, /`keep`/);
   assert.match(approvalBody, /Outside `git status`\./);
   assert.ok(approvalCard.body?.elements?.some((element) => element.tag === 'markdown' && element.content?.includes('Chat:')));
+});
+
+test('renders approval cards as informational content without buttons', () => {
+  const card = JSON.parse(
+    buildApprovalCard({
+      title: 'Approval required',
+      bodyMarkdown: 'Need approval',
+      footerItems: [{ label: 'Chat', value: 'session-a' }],
+    }).content,
+  ) as {
+    schema?: string;
+    config?: { wide_screen_mode?: boolean };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+
+  assert.equal(card.schema, '2.0');
+  assert.equal(card.config?.wide_screen_mode, true);
+  assert.equal(card.body?.elements?.some((element) => element.tag === 'action' || element.tag === 'button'), false);
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('Need approval')));
 });
 
 test('builds startup notification as an interactive markdown card', () => {

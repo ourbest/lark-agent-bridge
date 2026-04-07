@@ -67,6 +67,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//approvals', description: 'List pending approval requests.' },
   { command: '//approve <id>', description: 'Approve a single request.' },
   { command: '//approve-all <id>', description: 'Approve the request for the whole chat session.' },
+  { command: '//approve-auto <minutes>', description: 'Auto-approve approval requests in this chat for N minutes.' },
   { command: '//deny <id>', description: 'Deny a pending request.' },
   { command: '//help', description: 'Show this help card.' },
 ] as const;

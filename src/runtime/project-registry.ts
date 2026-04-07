@@ -11,6 +11,8 @@ export interface ProjectConfig {
   serviceName: string;
   transport: 'stdio' | 'websocket';
   websocketUrl?: string;
+  adapterType?: 'codex' | 'claude-code' | 'qwen-code';
+  qwenExecutable?: string;
 }
 
 export interface ProjectRegistryOptions {
@@ -151,7 +153,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
         projectInstanceId: projectId,
         request,
         respond: async (result: unknown) => {
-          if (client.respondToServerRequest === undefined) {
+          if (typeof client.respondToServerRequest !== 'function') {
             throw new Error(`Project ${projectId} does not support server request responses`);
           }
 

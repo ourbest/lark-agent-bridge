@@ -82,6 +82,11 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
     processQueue(chatId);
   }
 
+  function logTransportError(action: string, sessionId: string, error: unknown): void {
+    const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
+    console.error(`[feishu] ${action} failed, session=${sessionId}, reason="${reason}"`);
+  }
+
   async function startWebSocket() {
     if (started || stopped) {
       return;
@@ -173,11 +178,15 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
       return started && !stopped;
     },
     async sendMessage(message) {
-      return await new Promise<{ messageId?: string } | void>((resolve, reject) => {
+      return await new Promise<{ messageId?: string } | void>((resolve) => {
         enqueueMessage(message.sessionId, async () => {
+          let payload: { msg_type: string; content: string } = {
+            msg_type: 'text',
+            content: JSON.stringify({ text: message.text }),
+          };
           try {
             options.onSend?.(message);
-            const payload = isMarkdown(message.text)
+            payload = isMarkdown(message.text)
               ? buildFeishuPostMessage(message.text)
               : {
                   msg_type: 'text',
@@ -192,13 +201,14 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
             });
             resolve(result);
           } catch (error) {
-            reject(error);
+            logTransportError(`send ${payload.msg_type}`, message.sessionId, error);
+            resolve(undefined);
           }
         });
       });
     },
     async sendCard(message) {
-      return await new Promise<{ messageId?: string } | void>((resolve, reject) => {
+      return await new Promise<{ messageId?: string } | void>((resolve) => {
         enqueueMessage(message.sessionId, async () => {
           try {
             options.onSendCard?.(message);
@@ -210,7 +220,8 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
             });
             resolve(result);
           } catch (error) {
-            reject(error);
+            logTransportError('send interactive', message.sessionId, error);
+            resolve(undefined);
           }
         });
       });
@@ -220,7 +231,7 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
         return;
       }
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         enqueueMessage(message.sessionId, async () => {
           try {
             await options.updateMessageFn({
@@ -231,17 +242,22 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
             });
             resolve();
           } catch (error) {
-            reject(error);
+            logTransportError('update interactive', message.sessionId, error);
+            resolve();
           }
         });
       });
     },
     async sendReaction(message) {
       options.onReact?.(message);
-      await options.sendReactionFn({
-        messageId: message.targetMessageId,
-        emojiType: message.emojiType,
-      });
+      try {
+        await options.sendReactionFn({
+          messageId: message.targetMessageId,
+          emojiType: message.emojiType,
+        });
+      } catch (error) {
+        logTransportError(`react ${message.emojiType}`, message.targetMessageId, error);
+      }
     },
   };
 }
