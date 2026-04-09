@@ -21,7 +21,7 @@ function resolveLiveConfig() {
 
 function extractLatestMarkdownFromLog(logPath: string): string {
   const log = readFileSync(logPath, 'utf8');
-  const matches = [...log.matchAll(/\[codex-bridge\] outbound -> .*?: ([\s\S]*?)\n\[feishu\] sending post, session=/g)];
+  const matches = [...log.matchAll(/\[lark-agent-bridge\] outbound -> .*?: ([\s\S]*?)\n\[feishu\] sending post, session=/g)];
 
   if (matches.length === 0) {
     throw new Error(`could not find an outbound markdown message in ${logPath}`);

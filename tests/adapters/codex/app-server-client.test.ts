@@ -92,7 +92,7 @@ test('initializes codex app-server, starts a thread, and collects streamed agent
           approvalPolicy: 'on-request',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
       {
@@ -204,7 +204,7 @@ test('reads the current model from a dynamic getter for each turn', async () => 
           approvalPolicy: 'on-request',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
       {
@@ -416,7 +416,7 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
   });
 
   const threadId = await client.startThread({
-    cwd: '/Users/yonghui/git/codex-bridge',
+    cwd: '/Users/yonghui/git/lark-agent-bridge',
   });
 
   assert.equal(threadId, 'thr_bind_1');
@@ -446,11 +446,11 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
         method: 'thread/start',
         params: {
           approvalPolicy: 'on-request',
-          cwd: '/Users/yonghui/git/codex-bridge',
+          cwd: '/Users/yonghui/git/lark-agent-bridge',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
           personality: 'friendly',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
     ],
@@ -501,10 +501,10 @@ test('starts a fresh thread when forced even if one already exists', async () =>
   });
 
   const firstThreadId = await client.startThread({
-    cwd: '/Users/yonghui/git/codex-bridge',
+    cwd: '/Users/yonghui/git/lark-agent-bridge',
   });
   const secondThreadId = await client.startThread({
-    cwd: '/Users/yonghui/git/codex-bridge',
+    cwd: '/Users/yonghui/git/lark-agent-bridge',
     force: true,
   });
 
@@ -536,11 +536,11 @@ test('starts a fresh thread when forced even if one already exists', async () =>
         method: 'thread/start',
         params: {
           approvalPolicy: 'on-request',
-          cwd: '/Users/yonghui/git/codex-bridge',
+          cwd: '/Users/yonghui/git/lark-agent-bridge',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
           personality: 'friendly',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
       {
@@ -548,11 +548,11 @@ test('starts a fresh thread when forced even if one already exists', async () =>
         method: 'thread/start',
         params: {
           approvalPolicy: 'on-request',
-          cwd: '/Users/yonghui/git/codex-bridge',
+          cwd: '/Users/yonghui/git/lark-agent-bridge',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
           personality: 'friendly',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
     ],

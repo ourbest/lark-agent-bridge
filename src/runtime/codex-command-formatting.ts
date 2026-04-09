@@ -17,11 +17,11 @@ export function formatCodexCommandResult(method: string, result: unknown): strin
     return formatObject(method, result);
   }
 
-  return [`[codex-bridge] ${method}: ${formatScalar(result)}`];
+  return [`[lark-agent-bridge] ${method}: ${formatScalar(result)}`];
 }
 
 function formatList(method: string, items: unknown[], maxItems: number | null): string[] {
-  const lines = [`[codex-bridge] ${method}: ${items.length} item(s)`];
+  const lines = [`[lark-agent-bridge] ${method}: ${items.length} item(s)`];
 
   if (items.length === 0) {
     lines.push('no items');
@@ -48,11 +48,11 @@ function formatList(method: string, items: unknown[], maxItems: number | null): 
 }
 
 function formatObject(method: string, value: UnknownRecord): string[] {
-  return [`[codex-bridge] ${method}`, ...formatObjectFields(value)];
+  return [`[lark-agent-bridge] ${method}`, ...formatObjectFields(value)];
 }
 
 function formatReviewStartResponse(value: UnknownRecord): string[] {
-  const lines = ['[codex-bridge] review/start'];
+  const lines = ['[lark-agent-bridge] review/start'];
   const reviewThreadId = typeof value.reviewThreadId === 'string' ? value.reviewThreadId : null;
   const turn = isRecord(value.turn) ? value.turn : null;
   const turnId = turn !== null && typeof turn.id === 'string' ? turn.id : null;

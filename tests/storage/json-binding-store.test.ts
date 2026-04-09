@@ -8,7 +8,7 @@ import test from 'node:test';
 import { JsonBindingStore } from '../../src/storage/json-binding-store.ts';
 
 test('persists the last thread for a chat and project pair', () => {
-  const filePath = path.join('/tmp', `codex-bridge-thread-store-${Date.now()}.json`);
+  const filePath = path.join('/tmp', `lark-agent-bridge-thread-store-${Date.now()}.json`);
   try {
     const store = new JsonBindingStore(filePath);
     store.setLastThreadId('project-a', 'chat-a', 'thr_123');
@@ -23,7 +23,7 @@ test('persists the last thread for a chat and project pair', () => {
 });
 
 test('persists bridge project state without runtime handles', () => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'codex-bridge-state-'));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'lark-agent-bridge-state-'));
   const filePath = path.join(tempDir, 'bridge.json');
 
   try {

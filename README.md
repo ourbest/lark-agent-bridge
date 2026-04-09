@@ -1,8 +1,8 @@
-# codex-bridge
+# lark-agent-bridge
 
 Bridge service connecting Codex project instances to Feishu/Lark chat sessions. Send messages to a chat, and the bound Codex project responds.
 
-`codex-bridge` connects one Feishu/Lark chat session to one Codex project instance at a time. It supports project auto-discovery, lazy Codex connection startup, and switching between multiple providers per project.
+`lark-agent-bridge` connects one Feishu/Lark chat session to one Codex project instance at a time. It supports project auto-discovery, lazy Codex connection startup, and switching between multiple providers per project.
 
 ## Prerequisites
 
@@ -201,16 +201,16 @@ curl -X POST http://127.0.0.1:3000/bindings \
 
 ```bash
 pm2 start ecosystem.config.cjs
-pm2 logs codex-bridge
+pm2 logs lark-agent-bridge
 pm2 save
 ```
 
 Lifecycle commands:
 
 ```bash
-pm2 restart codex-bridge
-pm2 stop codex-bridge
-pm2 delete codex-bridge
+pm2 restart lark-agent-bridge
+pm2 stop lark-agent-bridge
+pm2 delete lark-agent-bridge
 ```
 
 The `//restart` command exits with code 0, and pm2 automatically starts a fresh process.
@@ -226,6 +226,7 @@ The `//restart` command exits with code 0, and pm2 automatically starts a fresh 
 | `BRIDGE_STORAGE_PATH` | `./data/bridge.json` | Binding store path |
 | `BRIDGE_PROJECTS_FILE` | `./projects.json` | Projects config path |
 | `BRIDGE_PROJECTS_ROOT` | not set | Auto-discover projects from non-hidden subdirectories |
+| `BRIDGE_APP_NAME` | `lark-agent-bridge` | Display name used in startup notifications |
 
 ### Feishu
 

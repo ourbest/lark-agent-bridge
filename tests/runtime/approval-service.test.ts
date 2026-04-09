@@ -23,7 +23,7 @@ test('registers approval requests and resolves approve-all for command execution
   });
 
   assert.deepEqual(announcement.lines, [
-    '[codex-bridge] Approval required:',
+    '[lark-agent-bridge] Approval required:',
     '  Request ID: 99',
     '  kind: command execution',
     '  projectId: project-a',
@@ -52,7 +52,7 @@ test('registers approval requests and resolves approve-all for command execution
     text: '//approve-all 99',
   });
 
-  assert.deepEqual(lines, ['[codex-bridge] approved request 99 for the session']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] approved request 99 for the session']);
   assert.deepEqual(responses, [
     {
       requestId: 99,
@@ -91,7 +91,7 @@ test('denies permissions requests by returning an empty grant', async () => {
   });
 
   assert.deepEqual(announcement.lines, [
-    '[codex-bridge] Approval required:',
+    '[lark-agent-bridge] Approval required:',
     '  Request ID: perm-1',
     '  kind: permissions',
     '  projectId: project-a',
@@ -123,7 +123,7 @@ test('denies permissions requests by returning an empty grant', async () => {
     text: '//deny perm-1',
   });
 
-  assert.deepEqual(lines, ['[codex-bridge] denied permissions request perm-1 by withholding additional permissions']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] denied permissions request perm-1 by withholding additional permissions']);
   assert.deepEqual(responses, [
     {
       requestId: 'perm-1',
@@ -164,8 +164,8 @@ test('approve-auto accepts current-session requests within the configured window
   });
 
   assert.deepEqual(enableLines, [
-    '[codex-bridge] enabled auto-approval for this chat for 30 minutes',
-    '[codex-bridge] auto-approved 1 pending request(s): pending-1',
+    '[lark-agent-bridge] enabled auto-approval for this chat for 30 minutes',
+    '[lark-agent-bridge] auto-approved 1 pending request(s): pending-1',
   ]);
   assert.deepEqual(responses, [
     {

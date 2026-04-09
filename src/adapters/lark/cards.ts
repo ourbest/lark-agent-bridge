@@ -334,7 +334,7 @@ export function buildHelpCard(input: {
     },
     header: {
       template: 'turquoise',
-      title: plainText(input.title ?? 'codex-bridge help'),
+      title: plainText(input.title ?? 'lark-agent-bridge help'),
       subtitle: input.subtitle ? plainText(input.subtitle) : undefined,
     },
     body: {
@@ -389,7 +389,7 @@ export function buildUnboundCard(input: {
     },
     header: {
       template: 'grey',
-      title: plainText('codex-bridge'),
+      title: plainText('lark-agent-bridge'),
       subtitle: plainText('Bind a project to get started'),
     },
     body: {

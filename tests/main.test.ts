@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatCodexCommandResultWithFallback, patchFeishuMessageCard } from '../src/main.ts';
+import {
+  formatCodexCommandResultWithFallback,
+  patchFeishuMessageCard,
+  resolveStartupNotificationTitle,
+} from '../src/main.ts';
 
 test('patchFeishuMessageCard sends a PATCH request without msg_type', async () => {
   const calls: Array<{
@@ -87,11 +91,17 @@ test('formatCodexCommandResultWithFallback enriches sparse thread/read results f
     },
   ]);
   assert.deepEqual(lines, [
-    '[codex-bridge] thread/read',
+    '[lark-agent-bridge] thread/read',
     'id: thr_123',
     'preview: hello world',
     'status: loaded',
     'cwd: /tmp/project',
     'source: vscode',
   ]);
+});
+
+test('resolveStartupNotificationTitle defaults to lark-agent-bridge and honors BRIDGE_APP_NAME', () => {
+  assert.equal(resolveStartupNotificationTitle({}), 'lark-agent-bridge');
+  assert.equal(resolveStartupNotificationTitle({ BRIDGE_APP_NAME: '  lark-agent-bridge  ' }), 'lark-agent-bridge');
+  assert.equal(resolveStartupNotificationTitle({ BRIDGE_APP_NAME: '   ' }), 'lark-agent-bridge');
 });

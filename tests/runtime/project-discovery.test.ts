@@ -11,7 +11,7 @@ import {
 } from '../../src/runtime/project-discovery.ts';
 
 test('discovers visible project directories from a root folder', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-discovery-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-discovery-'));
   const root = join(tempDir, 'projects');
   mkdirSync(root);
   mkdirSync(join(root, 'alpha'));
@@ -92,7 +92,7 @@ test('merges explicit and discovered projects by projectInstanceId', () => {
 });
 
 test('loads merged projects from file and root discovery', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-discovery-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-discovery-'));
   const root = join(tempDir, 'projects');
   const filePath = join(tempDir, 'projects.json');
   mkdirSync(root);

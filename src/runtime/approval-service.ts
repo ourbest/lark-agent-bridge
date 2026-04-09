@@ -88,7 +88,7 @@ function describeRequestKind(kind: ApprovalKind): string {
 
 function buildAnnouncementLines(request: PendingRequest): string[] {
   const lines = [
-    '[codex-bridge] Approval required:',
+    '[lark-agent-bridge] Approval required:',
     `  Request ID: ${request.requestId}`,
     `  kind: ${describeRequestKind(request.kind)}`,
     `  projectId: ${request.projectInstanceId}`,
@@ -210,7 +210,7 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
           await request.respond(request.requestId, result);
           return {
             lines: [
-              '[codex-bridge] auto-approved approval request for this chat',
+              '[lark-agent-bridge] auto-approved approval request for this chat',
               `  Request ID: ${request.requestId}`,
               `  kind: ${describeRequestKind(request.kind)}`,
             ],
@@ -245,10 +245,10 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
       if (parsed.command === 'approvals') {
         const requests = Array.from(pendingRequests.values()).filter((request) => request.sessionId === input.sessionId);
         if (requests.length === 0) {
-          return ['[codex-bridge] no pending approvals for this chat'];
+          return ['[lark-agent-bridge] no pending approvals for this chat'];
         }
 
-        return ['[codex-bridge] pending approvals:', ...requests.flatMap(buildPendingSummaryLines)];
+        return ['[lark-agent-bridge] pending approvals:', ...requests.flatMap(buildPendingSummaryLines)];
       }
 
       if (parsed.command === 'approve-auto') {
@@ -272,9 +272,9 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
           approvedRequestIds.push(String(request.requestId));
         }
 
-        const lines = [`[codex-bridge] enabled auto-approval for this chat for ${minutes} minutes`];
+        const lines = [`[lark-agent-bridge] enabled auto-approval for this chat for ${minutes} minutes`];
         if (approvedRequestIds.length > 0) {
-          lines.push(`[codex-bridge] auto-approved ${approvedRequestIds.length} pending request(s): ${approvedRequestIds.join(', ')}`);
+          lines.push(`[lark-agent-bridge] auto-approved ${approvedRequestIds.length} pending request(s): ${approvedRequestIds.join(', ')}`);
         }
         return lines;
       }
@@ -283,7 +283,7 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
       if (parsed.command === 'approve-all' && parsed.requestId.trim() === '') {
         const sessionRequests = Array.from(pendingRequests.values()).filter((request) => request.sessionId === input.sessionId);
         if (sessionRequests.length === 0) {
-          return ['[codex-bridge] no pending approvals for this chat'];
+          return ['[lark-agent-bridge] no pending approvals for this chat'];
         }
 
         const results: string[] = [];
@@ -295,7 +295,7 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
             results.push(String(request.requestId));
           }
         }
-        return [`[codex-bridge] approved ${results.length} request(s) for the session: ${results.join(', ')}`];
+        return [`[lark-agent-bridge] approved ${results.length} request(s) for the session: ${results.join(', ')}`];
       }
 
       if (parsed.requestId.trim() === '') {
@@ -304,30 +304,30 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
 
       const request = pendingRequests.get(parsed.requestId);
       if (request === undefined) {
-        return [`[codex-bridge] approval request not found: ${parsed.requestId}`];
+        return [`[lark-agent-bridge] approval request not found: ${parsed.requestId}`];
       }
 
       if (request.sessionId !== input.sessionId) {
-        return [`[codex-bridge] approval request ${parsed.requestId} does not belong to this chat`];
+        return [`[lark-agent-bridge] approval request ${parsed.requestId} does not belong to this chat`];
       }
 
       const result = buildResolvedResult(request, parsed.command);
       if (result === null) {
-        return [`[codex-bridge] approval request ${parsed.requestId} cannot be resolved with //${parsed.command}`];
+        return [`[lark-agent-bridge] approval request ${parsed.requestId} cannot be resolved with //${parsed.command}`];
       }
 
       await request.respond(request.requestId, result);
       pendingRequests.delete(parsed.requestId);
 
       if (request.kind === 'permissions' && parsed.command === 'deny') {
-        return [`[codex-bridge] denied permissions request ${parsed.requestId} by withholding additional permissions`];
+        return [`[lark-agent-bridge] denied permissions request ${parsed.requestId} by withholding additional permissions`];
       }
 
       if (parsed.command === 'approve-all') {
-        return [`[codex-bridge] approved request ${parsed.requestId} for the session`];
+        return [`[lark-agent-bridge] approved request ${parsed.requestId} for the session`];
       }
 
-      return [`[codex-bridge] approved request ${parsed.requestId}`];
+      return [`[lark-agent-bridge] approved request ${parsed.requestId}`];
     },
   };
 }

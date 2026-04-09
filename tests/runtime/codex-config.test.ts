@@ -76,7 +76,7 @@ test('resolves codex runtime config from environment defaults', () => {
       command: 'codex',
       args: ['app-server'],
       cwd: undefined,
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
@@ -98,7 +98,7 @@ test('resolves websocket transport from environment override', () => {
       args: ['app-server'],
       cwd: undefined,
       model: 'gpt-5.4-mini',
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4567',
       adapterType: 'codex',
@@ -117,7 +117,7 @@ test('resolves qwen executable from environment override', () => {
       command: 'codex',
       args: ['app-server'],
       cwd: undefined,
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
@@ -137,7 +137,7 @@ test('preserves qwen executable when creating runtime config directly', () => {
       command: 'codex',
       args: ['app-server'],
       cwd: undefined,
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
@@ -168,7 +168,7 @@ test('resolves multiple codex runtime configs from environment json', () => {
         command: 'codex',
         args: ['app-server'],
         cwd: '/repo/a',
-        serviceName: 'codex-bridge',
+        serviceName: 'lark-agent-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
         adapterType: 'codex',
@@ -178,7 +178,7 @@ test('resolves multiple codex runtime configs from environment json', () => {
         command: 'codex',
         args: ['app-server', '--listen', 'stdio://'],
         cwd: '/repo/b',
-        serviceName: 'codex-bridge',
+        serviceName: 'lark-agent-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
         adapterType: 'codex',
@@ -188,7 +188,7 @@ test('resolves multiple codex runtime configs from environment json', () => {
 });
 
 test('keeps valid projects from a mixed projects file and skips malformed entries', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
 
   writeFileSync(
@@ -218,7 +218,7 @@ test('keeps valid projects from a mixed projects file and skips malformed entrie
       command: 'codex',
       args: ['app-server'],
       cwd: '/repo/a',
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
@@ -234,7 +234,7 @@ test('keeps valid projects from a mixed projects file and skips malformed entrie
 });
 
 test('loads stdio project configs from projects file shape', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
 
   writeFileSync(
@@ -261,7 +261,7 @@ test('loads stdio project configs from projects file shape', () => {
       command: 'codex',
       args: ['app-server'],
       cwd: '/repo/a',
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
@@ -277,7 +277,7 @@ test('loads stdio project configs from projects file shape', () => {
 });
 
 test('writes projects file snapshots in the same shape they are read from', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
 
   writeProjectsFile(filePath, [
@@ -286,7 +286,7 @@ test('writes projects file snapshots in the same shape they are read from', () =
       command: 'codex',
       args: ['app-server'],
       cwd: '/repo/a',
-      serviceName: 'codex-bridge-a',
+      serviceName: 'lark-agent-bridge-a',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
       providers: [
@@ -306,7 +306,7 @@ test('writes projects file snapshots in the same shape they are read from', () =
           command: 'codex',
           args: ['app-server'],
           cwd: '/repo/a',
-          serviceName: 'codex-bridge-a',
+          serviceName: 'lark-agent-bridge-a',
           transport: 'websocket',
           websocketUrl: 'ws://127.0.0.1:4000',
           providers: [
@@ -323,7 +323,7 @@ test('writes projects file snapshots in the same shape they are read from', () =
 });
 
 test('preserves the original cwd text when rewriting loaded projects', () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
   const originalHome = process.env.HOME;
 
@@ -338,8 +338,8 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
               projectInstanceId: 'project-a',
               command: 'codex',
               args: ['app-server'],
-              cwd: '~/workspace/codex-bridge',
-              serviceName: 'codex-bridge',
+              cwd: '~/workspace/lark-agent-bridge',
+              serviceName: 'lark-agent-bridge',
               transport: 'websocket',
               websocketUrl: 'ws://127.0.0.1:4000',
               providers: [
@@ -363,8 +363,8 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
         projectInstanceId: 'project-a',
         command: 'codex',
         args: ['app-server'],
-        cwd: '/Users/yonghui/workspace/codex-bridge',
-        serviceName: 'codex-bridge',
+        cwd: '/Users/yonghui/workspace/lark-agent-bridge',
+        serviceName: 'lark-agent-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
         adapterType: 'codex',
@@ -390,8 +390,8 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
             projectInstanceId: 'project-a',
             command: 'codex',
             args: ['app-server'],
-            cwd: '~/workspace/codex-bridge',
-            serviceName: 'codex-bridge',
+            cwd: '~/workspace/lark-agent-bridge',
+            serviceName: 'lark-agent-bridge',
             transport: 'websocket',
             websocketUrl: 'ws://127.0.0.1:4000',
             adapterType: 'codex',
@@ -427,7 +427,7 @@ test('expands tilde cwd values from project config files', () => {
         command: 'codex',
         args: ['app-server'],
         cwd: '/Users/yonghui/xiaoan-source/deploy',
-        serviceName: 'codex-bridge',
+        serviceName: 'lark-agent-bridge',
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',
         adapterType: 'codex',
@@ -437,7 +437,7 @@ test('expands tilde cwd values from project config files', () => {
 });
 
 test('keeps the last valid projects snapshot when reload encounters invalid json', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
   const firstSnapshot = [
     {
@@ -445,7 +445,7 @@ test('keeps the last valid projects snapshot when reload encounters invalid json
       command: 'codex',
       args: ['app-server'],
       cwd: '/repo/a',
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket' as const,
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex' as const,
@@ -496,7 +496,7 @@ test('keeps the last valid projects snapshot when reload encounters invalid json
 });
 
 test('can start a projects watcher even when the file does not exist yet', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
 
   const watcher = createProjectConfigWatcher({
@@ -513,7 +513,7 @@ test('can start a projects watcher even when the file does not exist yet', async
 });
 
 test('continues when file watching is unavailable', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
   let errorListener: ((error: Error) => void) | null = null;
 

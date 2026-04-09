@@ -58,7 +58,7 @@ test('routes approval commands through the approval service', async () => {
   });
 
   assert.deepEqual(listLines, [
-    '[codex-bridge] pending approvals:',
+    '[lark-agent-bridge] pending approvals:',
     '  42 | command execution | project-a',
   ]);
 
@@ -68,7 +68,7 @@ test('routes approval commands through the approval service', async () => {
     text: '//approve 42',
   });
 
-  assert.deepEqual(approveLines, ['[codex-bridge] approved request 42']);
+  assert.deepEqual(approveLines, ['[lark-agent-bridge] approved request 42']);
   assert.deepEqual(responses, [
     {
       requestId: 42,
@@ -141,7 +141,7 @@ test('resumes a thread by explicit id for the bound chat', async () => {
     text: '//resume thr_123',
   });
 
-  assert.deepEqual(lines, ['[codex-bridge] resumed thread thr_123 for this chat']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] resumed thread thr_123 for this chat']);
   assert.deepEqual(calls, [
     {
       projectInstanceId: 'project-a',
@@ -190,7 +190,7 @@ test('resumes the last thread for the bound chat', async () => {
     text: '//resume last',
   });
 
-  assert.deepEqual(lines, ['[codex-bridge] resumed thread thr_456 for this chat']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] resumed thread thr_456 for this chat']);
   assert.deepEqual(calls, [
     {
       projectInstanceId: 'project-a',
@@ -250,7 +250,7 @@ test('starts a fresh thread for //new on the bound chat', async () => {
     text: '//new',
   });
 
-  assert.deepEqual(newLines, ['[codex-bridge] started new thread thr_new_1 for this chat']);
+  assert.deepEqual(newLines, ['[lark-agent-bridge] started new thread thr_new_1 for this chat']);
   assert.deepEqual(calls, [
     {
       projectInstanceId: 'project-a',
@@ -319,8 +319,8 @@ test('shows and updates the bound project model through //model', async () => {
     text: '//model gpt-5.4-mini',
   });
 
-  assert.deepEqual(readLines, ['[codex-bridge] project model: gpt-5.4']);
-  assert.deepEqual(updateLines, ['[codex-bridge] project model set to gpt-5.4-mini']);
+  assert.deepEqual(readLines, ['[lark-agent-bridge] project model: gpt-5.4']);
+  assert.deepEqual(updateLines, ['[lark-agent-bridge] project model set to gpt-5.4-mini']);
   assert.deepEqual(updates, [
     {
       projectInstanceId: 'project-a',
@@ -355,7 +355,7 @@ test('returns bridge and codex state for //status on a bound chat', async () => 
     projectRegistry: registry,
     getCodexStatusLines: async () => [
       '[codex] model: gpt-5.4-mini (reasoning medium, summaries auto)',
-      '[codex] directory: ~/git/codex-bridge',
+      '[codex] directory: ~/git/lark-agent-bridge',
       '[codex] permissions: Full Access',
       '[codex] agents.md: AGENTS.md',
       '[codex] collaboration mode: Default',
@@ -372,17 +372,17 @@ test('returns bridge and codex state for //status on a bound chat', async () => 
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] Bridge State:',
+    '[lark-agent-bridge] Bridge State:',
     '  chatId: chat-a',
     '  senderId: user-a',
     '  projectId: project-a',
-    '[codex-bridge] Codex State:',
+    '[lark-agent-bridge] Codex State:',
     '  projectId: project-a',
     '  configured: yes',
     '  active: yes',
     '  removed: no',
     '[codex] model: gpt-5.4-mini (reasoning medium, summaries auto)',
-    '[codex] directory: ~/git/codex-bridge',
+    '[codex] directory: ~/git/lark-agent-bridge',
     '[codex] permissions: Full Access',
     '[codex] agents.md: AGENTS.md',
     '[codex] collaboration mode: Default',
@@ -422,7 +422,7 @@ test('returns the current binding for //list', async () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] current binding:',
+    '[lark-agent-bridge] current binding:',
     '  chatId: chat-a',
     '  senderId: user-a',
     '  projectId: project-a',
@@ -452,7 +452,7 @@ test('returns an acknowledgement for //restart', async () => {
     text: '//restart',
   });
 
-  assert.deepEqual(lines, ['[codex-bridge] restarting bridge process...']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] restarting bridge process...']);
 });
 
 test('rejects bare codex commands without the // prefix', async () => {
@@ -479,8 +479,8 @@ test('rejects bare codex commands without the // prefix', async () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] unknown command: app/list',
-    '[codex-bridge] commands:',
+    '[lark-agent-bridge] unknown command: app/list',
+    '[lark-agent-bridge] commands:',
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
@@ -563,7 +563,7 @@ test('lists projects with //projects', async () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] projects:',
+    '[lark-agent-bridge] projects:',
     '  - project-a',
     '    cwd: /repo/project-a',
     '    source: config',
@@ -645,12 +645,12 @@ test('lists and switches providers for the bound project', async () => {
   });
 
   assert.deepEqual(providersLines, [
-    '[codex-bridge] providers for project-a:',
+    '[lark-agent-bridge] providers for project-a:',
     '  - codex | transport=stdio | active | started',
     '  - cc | transport=stdio | stopped',
     '  - qwen | transport=stdio | started',
   ]);
-  assert.deepEqual(switchLines, ['[codex-bridge] active provider for project-a set to qwen']);
+  assert.deepEqual(switchLines, ['[lark-agent-bridge] active provider for project-a set to qwen']);
   assert.deepEqual(setActiveCalls, [
     {
       projectInstanceId: 'project-a',
@@ -715,7 +715,7 @@ test('routes prefixed codex commands through the executor when bound', async () 
     projectRegistry: registry,
     executeCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -734,7 +734,7 @@ test('routes prefixed codex commands through the executor when bound', async () 
       args: [],
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('returns a configuration error when the prefixed codex executor is unavailable', async () => {
@@ -767,7 +767,7 @@ test('returns a configuration error when the prefixed codex executor is unavaila
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] codex command support is not configured',
+    '[lark-agent-bridge] codex command support is not configured',
     '  projectId: project-a',
     '  command: app/list',
   ]);
@@ -803,7 +803,7 @@ test('routes a whitelisted structured codex command through the executor', async
     projectRegistry: registry,
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -825,7 +825,7 @@ test('routes a whitelisted structured codex command through the executor', async
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('translates session/list to the current app-server thread/list method', async () => {
@@ -858,7 +858,7 @@ test('translates session/list to the current app-server thread/list method', asy
     projectRegistry: registry,
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -877,7 +877,7 @@ test('translates session/list to the current app-server thread/list method', asy
       params: {},
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('injects the bound project cwd into thread/list requests', async () => {
@@ -917,7 +917,7 @@ test('injects the bound project cwd into thread/list requests', async () => {
     },
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -938,7 +938,7 @@ test('injects the bound project cwd into thread/list requests', async () => {
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('routes review without arguments to a review/start request for uncommitted changes', async () => {
@@ -978,7 +978,7 @@ test('routes review without arguments to a review/start request for uncommitted 
     },
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -1002,7 +1002,7 @@ test('routes review without arguments to a review/start request for uncommitted 
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('routes review --base to a review/start request', async () => {
@@ -1040,7 +1040,7 @@ test('routes review --base to a review/start request', async () => {
     },
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -1065,7 +1065,7 @@ test('routes review --base to a review/start request', async () => {
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('routes review custom instructions to a review/start request', async () => {
@@ -1103,7 +1103,7 @@ test('routes review custom instructions to a review/start request', async () => 
     },
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -1128,7 +1128,7 @@ test('routes review custom instructions to a review/start request', async () => 
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('starts a thread for review when no current thread is recorded', async () => {
@@ -1176,7 +1176,7 @@ test('starts a thread for review when no current thread is recorded', async () =
     },
     executeStructuredCodexCommand: async (input) => {
       calls.push(input);
-      return ['[codex-bridge] codex ok'];
+      return ['[lark-agent-bridge] codex ok'];
     },
   });
 
@@ -1209,7 +1209,7 @@ test('starts a thread for review when no current thread is recorded', async () =
       },
     },
   ]);
-  assert.deepEqual(lines, ['[codex-bridge] codex ok']);
+  assert.deepEqual(lines, ['[lark-agent-bridge] codex ok']);
 });
 
 test('does not start a thread for review when codex executor support is unavailable', async () => {
@@ -1258,7 +1258,7 @@ test('does not start a thread for review when codex executor support is unavaila
 
   assert.deepEqual(startCalls, []);
   assert.deepEqual(lines, [
-    '[codex-bridge] codex command support is not configured',
+    '[lark-agent-bridge] codex command support is not configured',
     '  projectId: project-a',
     '  command: review/start',
   ]);
@@ -1340,8 +1340,8 @@ test('rejects unsupported codex commands before they reach the executor', async 
 
   assert.equal(called, false);
   assert.deepEqual(lines, [
-    '[codex-bridge] unknown command: session/delete chat-a',
-    '[codex-bridge] commands:',
+    '[lark-agent-bridge] unknown command: session/delete chat-a',
+    '[lark-agent-bridge] commands:',
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
@@ -1393,8 +1393,8 @@ test('returns an error for unknown // commands instead of falling through', asyn
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] unknown command: //sesions',
-    '[codex-bridge] commands:',
+    '[lark-agent-bridge] unknown command: //sesions',
+    '[lark-agent-bridge] commands:',
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',

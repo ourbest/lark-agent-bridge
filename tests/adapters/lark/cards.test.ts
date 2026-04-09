@@ -69,8 +69,8 @@ test('renders approval cards as informational content without buttons', () => {
 test('builds startup notification as an interactive markdown card', () => {
   const card = JSON.parse(
     buildStartupNotificationCard({
-      title: 'codex-bridge',
-      bodyMarkdown: '[codex-bridge] 已上线',
+      title: 'lark-agent-bridge',
+      bodyMarkdown: '[lark-agent-bridge] 已上线',
     }).content,
   ) as {
     schema?: string;
@@ -79,9 +79,9 @@ test('builds startup notification as an interactive markdown card', () => {
   };
 
   assert.equal(card.schema, '2.0');
-  assert.equal(card.header?.title?.content, 'codex-bridge');
+  assert.equal(card.header?.title?.content, 'lark-agent-bridge');
   assert.equal(card.body?.elements?.[0]?.tag, 'markdown');
-  assert.equal(card.body?.elements?.[0]?.content, '[codex-bridge] 已上线');
+  assert.equal(card.body?.elements?.[0]?.content, '[lark-agent-bridge] 已上线');
 });
 
 test('builds a processing bridge status card', () => {
@@ -109,7 +109,7 @@ test('builds an unavailable-project card with detailed diagnostics', () => {
     buildUnavailableProjectCard({
       projectId: 'cms-fe',
       lines: [
-        '[codex-bridge] bound project is unavailable: cms-fe',
+        '[lark-agent-bridge] bound project is unavailable: cms-fe',
         'status: failed',
         'reason: Reconnecting... 2/5',
         'source: generateReply',

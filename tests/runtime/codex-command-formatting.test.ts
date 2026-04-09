@@ -14,7 +14,7 @@ test('formats thread/list data into readable summary lines', () => {
         createdAt: 1775272026,
         updatedAt: 1775295943,
         status: { type: 'notLoaded' },
-        cwd: '/Users/yonghui/git/codex-bridge',
+        cwd: '/Users/yonghui/git/lark-agent-bridge',
         source: 'vscode',
         gitInfo: { branch: 'master' },
       },
@@ -26,7 +26,7 @@ test('formats thread/list data into readable summary lines', () => {
         createdAt: 1775269520,
         updatedAt: 1775269597,
         status: { type: 'notLoaded' },
-        cwd: '/Users/yonghui/git/codex-bridge',
+        cwd: '/Users/yonghui/git/lark-agent-bridge',
         source: 'vscode',
         gitInfo: { branch: 'master' },
       },
@@ -34,19 +34,19 @@ test('formats thread/list data into readable summary lines', () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] thread/list: 2 item(s)',
+    '[lark-agent-bridge] thread/list: 2 item(s)',
     '1. 019d5675-621f-73f1-b481-9f44d77a8c1f',
     '   preview: /sessions',
     '   status: notLoaded',
     '   updated: 2026-04-04 09:45:43',
-    '   cwd: /Users/yonghui/git/codex-bridge',
+    '   cwd: /Users/yonghui/git/lark-agent-bridge',
     '   source: vscode',
     '   branch: master',
     '2. 019d564f-25f1-7b03-b7e1-4adf31021509',
     '   preview: git status',
     '   status: notLoaded',
     '   updated: 2026-04-04 02:26:37',
-    '   cwd: /Users/yonghui/git/codex-bridge',
+    '   cwd: /Users/yonghui/git/lark-agent-bridge',
     '   source: vscode',
     '   branch: master',
   ]);
@@ -62,7 +62,7 @@ test('formats thread/list without truncating additional items', () => {
   });
 
   assert.equal(lines.some((line) => line.startsWith('... ')), false);
-  assert.deepEqual(lines[0], '[codex-bridge] thread/list: 11 item(s)');
+  assert.deepEqual(lines[0], '[lark-agent-bridge] thread/list: 11 item(s)');
   assert.ok(lines.includes('10. thr_10'));
   assert.ok(lines.includes('11. thr_11'));
 });
@@ -80,7 +80,7 @@ test('falls back to compact key fields for single-object responses', () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] thread/read',
+    '[lark-agent-bridge] thread/read',
     'id: thr_123',
     'preview: hello world',
     'status: loaded',
@@ -98,7 +98,7 @@ test('truncates oversized scalar values instead of returning raw payloads', () =
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] thread/read',
+    '[lark-agent-bridge] thread/read',
     `error: ${'x'.repeat(117)}...`,
   ]);
 });
@@ -120,7 +120,7 @@ test('formats app/list into readable app summaries', () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] app/list: 2 item(s)',
+    '[lark-agent-bridge] app/list: 2 item(s)',
     '1. shell',
     '   title: Shell',
     '   description: Run commands in the workspace',
@@ -136,7 +136,7 @@ test('formats empty lists explicitly', () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] app/list: 0 item(s)',
+    '[lark-agent-bridge] app/list: 0 item(s)',
     'no items',
   ]);
 });
@@ -152,7 +152,7 @@ test('formats review/start responses into a readable summary', () => {
   });
 
   assert.deepEqual(lines, [
-    '[codex-bridge] review/start',
+    '[lark-agent-bridge] review/start',
     'reviewThreadId: thr_review',
     'turnId: turn_review_1',
     'status: completed',

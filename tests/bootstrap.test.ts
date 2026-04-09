@@ -18,5 +18,5 @@ test('creates the bridge app shell', () => {
   });
 
   assert.equal(app.ready, false);
-  assert.equal(app.name, 'codex-bridge');
+  assert.equal(app.name, 'lark-agent-bridge');
 });

@@ -515,7 +515,7 @@ test('handles //status using the supplied project registry', async () => {
     larkTransport: transport,
     codexStatusProvider: async () => [
       'Model: gpt-5.4-mini (reasoning medium, summaries auto)',
-      'Directory: ~/git/codex-bridge',
+      'Directory: ~/git/lark-agent-bridge',
       'Permissions: Full Access',
       'Agents.md: AGENTS.md',
       'Collaboration mode: Default',
@@ -553,7 +553,7 @@ test('handles //status using the supplied project registry', async () => {
   assert.deepEqual(sentMessages, []);
   assert.equal(sentCards.length, 1);
   assert.equal(sentCards[0]?.sessionId, 'session-a');
-  assert.match(sentCards[0]?.fallbackText ?? '', /\[codex-bridge\] Bridge State:/);
+  assert.match(sentCards[0]?.fallbackText ?? '', /\[lark-agent-bridge\] Bridge State:/);
   const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
     header?: { title?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
@@ -670,14 +670,14 @@ test('renders codex query command results as interactive cards', async () => {
     executeStructuredCodexCommand: async ({ method }) => {
       if (method === 'app/list') {
         return [
-          '[codex-bridge] app/list: 1 item(s)',
+          '[lark-agent-bridge] app/list: 1 item(s)',
           '1. shell',
           '   title: Shell',
         ];
       }
 
       return [
-        '[codex-bridge] thread/read',
+        '[lark-agent-bridge] thread/read',
         'id: thr_123',
         'preview: hello world',
       ];
@@ -706,8 +706,8 @@ test('renders codex query command results as interactive cards', async () => {
 
   assert.deepEqual(sentMessages, []);
   assert.equal(sentCards.length, 2);
-  assert.match(sentCards[0]?.fallbackText ?? '', /\[codex-bridge\] app\/list: 1 item\(s\)/);
-  assert.match(sentCards[1]?.fallbackText ?? '', /\[codex-bridge\] thread\/read/);
+  assert.match(sentCards[0]?.fallbackText ?? '', /\[lark-agent-bridge\] app\/list: 1 item\(s\)/);
+  assert.match(sentCards[1]?.fallbackText ?? '', /\[lark-agent-bridge\] thread\/read/);
 
   const firstCard = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
     header?: { title?: { content?: string } };
@@ -727,7 +727,7 @@ test('renders codex query command results as interactive cards', async () => {
 });
 
 test('renders //read file content as an interactive markdown card', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-read-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-read-'));
   const relativePath = 'src/example.ts';
   const absolutePath = join(tempDir, relativePath);
   mkdirSync(join(tempDir, 'src'), { recursive: true });
@@ -808,7 +808,7 @@ test('renders //read file content as an interactive markdown card', async () => 
 });
 
 test('renders //read for a project with relative cwd configured', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-read-relative-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-read-relative-'));
   const repoRoot = join(tempDir, 'workspace');
   const projectDir = join(repoRoot, 'project-a');
   mkdirSync(join(projectDir, 'src'), { recursive: true });
@@ -883,7 +883,7 @@ test('renders //read for a project with relative cwd configured', async () => {
 });
 
 test('rejects //read when a symlink resolves outside the project cwd', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-read-symlink-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-read-symlink-'));
   const projectDir = join(tempDir, 'project-a');
   const outsideDir = join(tempDir, 'outside');
   mkdirSync(projectDir, { recursive: true });
@@ -1014,7 +1014,7 @@ test('acknowledges //restart before invoking the restart callback', async () => 
   assert.equal(sentCards.length, 1);
   assert.match(sentCards[0]?.fallbackText ?? '', /restarting bridge process/);
   assert.deepEqual(steps, [
-    'card:[codex-bridge] restarting bridge process...',
+    'card:[lark-agent-bridge] restarting bridge process...',
     'restart',
   ]);
 
@@ -1074,13 +1074,13 @@ test('renders //help as an interactive card for easier reading', async () => {
   assert.equal(sentCards.length, 1);
   assert.equal(sentCards[0]?.sessionId, 'session-help');
   assert.equal(sentCards[0]?.card.msg_type, 'interactive');
-  assert.match(sentCards[0]?.fallbackText ?? '', /\[codex-bridge\] commands:/);
+  assert.match(sentCards[0]?.fallbackText ?? '', /\[lark-agent-bridge\] commands:/);
 
   const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
     header?: { title?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
-  assert.equal(card.header?.title?.content, 'codex-bridge help');
+  assert.equal(card.header?.title?.content, 'lark-agent-bridge help');
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//projects')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//providers')));
@@ -1151,7 +1151,7 @@ test('renders unbound guidance as an interactive card', async () => {
     header?: { title?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
-  assert.equal(card.header?.title?.content, 'codex-bridge');
+  assert.equal(card.header?.title?.content, 'lark-agent-bridge');
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('not bound')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind <projectId>')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//projects')));
@@ -1243,7 +1243,7 @@ test('reports unavailable bound projects without claiming the binding is missing
     assert.equal(sentCards.length, 1);
     assert.equal(updatedCards.length, 1);
     assert.equal(updatedCards[0]?.messageId, 'card-1');
-    assert.match(updatedCards[0]?.fallbackText ?? '', /\[codex-bridge\] bound project is unavailable: project-a/);
+    assert.match(updatedCards[0]?.fallbackText ?? '', /\[lark-agent-bridge\] bound project is unavailable: project-a/);
     assert.match(updatedCards[0]?.fallbackText ?? '', /reason: codex app-server disconnected/);
     assert.equal(loggedErrors.length, 1);
     assert.match(loggedErrors[0] ?? '', /bound project unavailable/);
@@ -1512,7 +1512,7 @@ test('self-heals a missing bound project handler once before replying with failu
 });
 
 test('handles //reload projects by reloading a real projects file and reconciling state', async () => {
-  const tempDir = mkdtempSync(join(tmpdir(), 'codex-bridge-projects-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-projects-'));
   const filePath = join(tempDir, 'projects.json');
   writeFileSync(
     filePath,
@@ -1574,7 +1574,7 @@ test('handles //reload projects by reloading a real projects file and reconcilin
     larkTransport: transport,
     codexStatusProvider: async () => [
       'Model: gpt-5.4-mini (reasoning medium, summaries auto)',
-      'Directory: ~/git/codex-bridge',
+      'Directory: ~/git/lark-agent-bridge',
       'Permissions: Full Access',
       'Agents.md: AGENTS.md',
       'Collaboration mode: Default',
@@ -1595,7 +1595,7 @@ test('handles //reload projects by reloading a real projects file and reconcilin
         cwd: entry.cwd ?? '/repo/project-a',
       })));
       await registry.reconcileProjectConfigs(projectConfigs);
-      return [`[codex-bridge] reloaded projects: ${projects.length}`];
+      return [`[lark-agent-bridge] reloaded projects: ${projects.length}`];
     },
   });
 
@@ -1636,7 +1636,7 @@ test('handles //reload projects by reloading a real projects file and reconcilin
 
   assert.equal(sentMessages[0]?.text, undefined);
   assert.equal(sentCards.length, 2);
-  assert.match(sentCards[1]?.fallbackText ?? '', /\[codex-bridge\] Bridge State:/);
+  assert.match(sentCards[1]?.fallbackText ?? '', /\[lark-agent-bridge\] Bridge State:/);
   assert.match(sentCards[1]?.fallbackText ?? '', /Model: gpt-5.4-mini \(reasoning medium, summaries auto\)/);
 
   await app.stop();

@@ -125,7 +125,7 @@ test('surfaces app-server approval requests and can respond to them', async () =
           approvalPolicy: 'on-request',
           model: 'gpt-5.4-mini',
           sandbox: 'workspace-write',
-          serviceName: 'codex-bridge',
+          serviceName: 'lark-agent-bridge',
         },
       },
       {

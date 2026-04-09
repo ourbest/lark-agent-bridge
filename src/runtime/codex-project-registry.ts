@@ -25,7 +25,7 @@ export class CodexProjectRegistry {
           args: project.args,
           cwd: project.cwd,
           clientInfo: {
-            name: 'codex-bridge',
+            name: 'lark-agent-bridge',
             title: 'Codex Bridge',
             version: '0.1.0',
           },
@@ -61,7 +61,7 @@ export function createCodexProjectRegistry(options: CodexProjectRegistryOptions 
         projectInstanceId: entry.projectInstanceId,
         command: 'codex',
         args: ['app-server'],
-        serviceName: 'codex-bridge',
+        serviceName: 'lark-agent-bridge',
         cwd: undefined,
         transport: 'websocket',
         websocketUrl: 'ws://127.0.0.1:4000',

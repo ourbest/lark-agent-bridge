@@ -87,12 +87,12 @@ export function createProjectConfigWatcher(options: ProjectConfigWatcherOptions)
           fileWatcher = null;
         }
 
-        console.warn(`[codex-bridge] project config watcher unavailable (${code ?? 'unknown'}); continuing without live reload`);
+        console.warn(`[lark-agent-bridge] project config watcher unavailable (${code ?? 'unknown'}); continuing without live reload`);
       });
     } catch (error) {
       const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : undefined;
       fileWatcher = null;
-      console.warn(`[codex-bridge] project config watcher unavailable (${code}); continuing without live reload`);
+      console.warn(`[lark-agent-bridge] project config watcher unavailable (${code}); continuing without live reload`);
     }
   }
 

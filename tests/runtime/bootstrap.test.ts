@@ -13,12 +13,12 @@ test('resolves runtime config from environment overrides', () => {
   const config = resolveBridgeConfig({
     BRIDGE_HOST: '0.0.0.0',
     BRIDGE_PORT: '8088',
-    BRIDGE_STORAGE_PATH: '/tmp/codex-bridge.json',
+    BRIDGE_STORAGE_PATH: '/tmp/lark-agent-bridge.json',
   });
 
   assert.equal(config.server.host, '0.0.0.0');
   assert.equal(config.server.port, 8088);
-  assert.equal(config.storage.path, '/tmp/codex-bridge.json');
+  assert.equal(config.storage.path, '/tmp/lark-agent-bridge.json');
 });
 
 test('creates a local dev transport that can receive and send messages', async () => {

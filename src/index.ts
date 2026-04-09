@@ -2,7 +2,7 @@ import type { AppShell, BridgeConfig } from './types/index.ts';
 
 export function createApp(options: { config: BridgeConfig }): AppShell {
   return {
-    name: 'codex-bridge',
+    name: 'lark-agent-bridge',
     ready: false,
     config: options.config,
   };

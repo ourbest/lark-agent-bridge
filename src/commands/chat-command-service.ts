@@ -97,12 +97,12 @@ function yesNo(value: boolean): 'yes' | 'no' {
 }
 
 function formatNotBoundMessage(): string[] {
-  return ['[codex-bridge] this chat is not bound to any project'];
+  return ['[lark-agent-bridge] this chat is not bound to any project'];
 }
 
 function buildHelpLines(): string[] {
   return [
-    '[codex-bridge] commands:',
+    '[lark-agent-bridge] commands:',
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
     '  //list              - show current binding',
@@ -144,11 +144,11 @@ async function buildSessionStateLines(
 
   const state = await projectRegistry.describeProject(projectId);
   const lines = [
-    '[codex-bridge] Bridge State:',
+    '[lark-agent-bridge] Bridge State:',
     `  chatId: ${sessionId}`,
     `  senderId: ${senderId}`,
     `  projectId: ${projectId}`,
-    '[codex-bridge] Codex State:',
+    '[lark-agent-bridge] Codex State:',
     `  projectId: ${state.projectInstanceId}`,
     `  configured: ${yesNo(state.configured)}`,
     `  active: ${yesNo(state.active)}`,
@@ -213,7 +213,7 @@ function parseCommand(text: string): { kind: 'bridge' | 'codex' | 'unknown' | 'n
 
 function buildUnknownCommandLines(input: string): string[] {
   return [
-    `[codex-bridge] unknown command: ${input.trim()}`,
+    `[lark-agent-bridge] unknown command: ${input.trim()}`,
     ...buildHelpLines(),
   ];
 }
@@ -232,15 +232,15 @@ function formatProviderSummary(provider: ProjectProviderSummary, activeProvider?
 
 async function buildProjectsLines(dependencies: ChatCommandServiceDependencies): Promise<string[]> {
   if (dependencies.projectRegistry.listProjects === undefined) {
-    return ['[codex-bridge] project listing is not configured'];
+    return ['[lark-agent-bridge] project listing is not configured'];
   }
 
   const projects = await dependencies.projectRegistry.listProjects();
   if (projects.length === 0) {
-    return ['[codex-bridge] no projects configured'];
+    return ['[lark-agent-bridge] no projects configured'];
   }
 
-  const lines = ['[codex-bridge] projects:'];
+  const lines = ['[lark-agent-bridge] projects:'];
   for (const project of projects) {
     lines.push(`  - ${project.projectInstanceId}`);
     if (project.cwd !== undefined && project.cwd !== null) {
@@ -289,10 +289,10 @@ async function buildProvidersLines(
       : [];
 
   if (providers.length === 0) {
-    return [`[codex-bridge] no providers configured for ${projectId}`];
+    return [`[lark-agent-bridge] no providers configured for ${projectId}`];
   }
 
-  const lines = [`[codex-bridge] providers for ${projectId}:`];
+  const lines = [`[lark-agent-bridge] providers for ${projectId}:`];
   for (const provider of providers) {
     lines.push(formatProviderSummary(provider, activeProvider));
   }
@@ -316,16 +316,16 @@ async function switchActiveProviderLines(
   }
 
   if (dependencies.projectRegistry.setActiveProvider === undefined) {
-    return ['[codex-bridge] provider switching is not configured'];
+    return ['[lark-agent-bridge] provider switching is not configured'];
   }
 
   await dependencies.projectRegistry.setActiveProvider(projectId, normalizedProvider);
-  return [`[codex-bridge] active provider for ${projectId} set to ${normalizedProvider}`];
+  return [`[lark-agent-bridge] active provider for ${projectId} set to ${normalizedProvider}`];
 }
 
 function buildCodexSupportNotConfiguredLines(projectId: string, method: string): string[] {
   return [
-    '[codex-bridge] codex command support is not configured',
+    '[lark-agent-bridge] codex command support is not configured',
     `  projectId: ${projectId}`,
     `  command: ${method}`,
   ];
@@ -345,7 +345,7 @@ async function startNewThreadLines(
     force: true,
   });
 
-  return [`[codex-bridge] started new thread ${threadId} for this chat`];
+  return [`[lark-agent-bridge] started new thread ${threadId} for this chat`];
 }
 
 async function updateProjectModelLines(
@@ -355,16 +355,16 @@ async function updateProjectModelLines(
 ): Promise<string[]> {
   const projectConfig = dependencies.projectRegistry.getProjectConfig?.(projectId) ?? null;
   if (projectConfig === null) {
-    return [`[codex-bridge] project config is not available for ${projectId}`];
+    return [`[lark-agent-bridge] project config is not available for ${projectId}`];
   }
 
   if (dependencies.projectRegistry.updateProjectConfig === undefined) {
-    return ['[codex-bridge] project model updates are not configured'];
+    return ['[lark-agent-bridge] project model updates are not configured'];
   }
 
   if (model === undefined) {
     const currentModel = projectConfig.model?.trim();
-    return currentModel ? [`[codex-bridge] project model: ${currentModel}`] : ['[codex-bridge] project model is not configured'];
+    return currentModel ? [`[lark-agent-bridge] project model: ${currentModel}`] : ['[lark-agent-bridge] project model is not configured'];
   }
 
   const normalizedModel = model.trim();
@@ -373,7 +373,7 @@ async function updateProjectModelLines(
   }
 
   await dependencies.projectRegistry.updateProjectConfig(projectId, { model: normalizedModel });
-  return [`[codex-bridge] project model set to ${normalizedModel}`];
+  return [`[lark-agent-bridge] project model set to ${normalizedModel}`];
 }
 
 function resolveCodexCommand(
@@ -528,12 +528,12 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             }
             const projectId = parsed.args[0];
             await dependencies.bindingService.bindProjectToSession(projectId, input.sessionId);
-            return [`[codex-bridge] bound chat ${input.sessionId} to project "${projectId}"`];
+            return [`[lark-agent-bridge] bound chat ${input.sessionId} to project "${projectId}"`];
           }
 
           case 'unbind': {
             await dependencies.bindingService.unbindSession(input.sessionId);
-            return [`[codex-bridge] unbound session ${input.sessionId}`];
+            return [`[lark-agent-bridge] unbound session ${input.sessionId}`];
           }
 
           case 'list': {
@@ -542,7 +542,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
               return formatNotBoundMessage();
             }
             return [
-              '[codex-bridge] current binding:',
+              '[lark-agent-bridge] current binding:',
               `  chatId: ${input.sessionId}`,
               `  senderId: ${input.senderId}`,
               `  projectId: ${projectId}`,
@@ -583,7 +583,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             );
 
           case 'read':
-            return parsed.args.length === 0 ? ['Usage: //read <path>'] : ['[codex-bridge] reading file...'];
+            return parsed.args.length === 0 ? ['Usage: //read <path>'] : ['[lark-agent-bridge] reading file...'];
 
           case 'model': {
             if (parsed.args.length > 1) {
@@ -599,7 +599,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
           }
 
           case 'restart':
-            return ['[codex-bridge] restarting bridge process...'];
+            return ['[lark-agent-bridge] restarting bridge process...'];
 
           case 'resume': {
             if (parsed.args.length !== 1) {
@@ -619,15 +619,15 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
                 : parsed.args[0];
 
             if (requestedThreadId === null) {
-              return ['[codex-bridge] no previous thread available for this chat'];
+              return ['[lark-agent-bridge] no previous thread available for this chat'];
             }
 
             if (dependencies.projectRegistry.resumeThread === undefined) {
-              return ['[codex-bridge] thread resume is not configured'];
+              return ['[lark-agent-bridge] thread resume is not configured'];
             }
 
             const resumedThreadId = await dependencies.projectRegistry.resumeThread(projectId, requestedThreadId);
-            return [`[codex-bridge] resumed thread ${resumedThreadId} for this chat`];
+            return [`[lark-agent-bridge] resumed thread ${resumedThreadId} for this chat`];
           }
 
           case 'reload': {
@@ -636,7 +636,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             }
 
             if (dependencies.reloadProjects === undefined) {
-              return ['[codex-bridge] project reload is not configured'];
+              return ['[lark-agent-bridge] project reload is not configured'];
             }
 
             return await dependencies.reloadProjects();
@@ -691,7 +691,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             : resolved.params;
 
       if (resolved.method === 'review/start' && typeof params.threadId !== 'string') {
-        return ['[codex-bridge] review requires an active codex thread'];
+        return ['[lark-agent-bridge] review requires an active codex thread'];
       }
 
       if (dependencies.executeStructuredCodexCommand !== undefined) {

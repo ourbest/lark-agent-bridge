@@ -81,6 +81,11 @@ function extractCommandFromParams(params: Record<string, unknown>): string | nul
   return null;
 }
 
+export function resolveStartupNotificationTitle(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env.BRIDGE_APP_NAME?.trim();
+  return value === undefined || value === '' ? 'lark-agent-bridge' : value;
+}
+
 export async function patchFeishuMessageCard(
   client: Pick<Client, 'request'>,
   input: { messageId: string; content: string },
@@ -250,10 +255,10 @@ export async function run(): Promise<void> {
     ? await createFeishuWebSocketTransportFromRuntime(feishuRuntime)
     : { transport: createLocalDevLarkTransport({
         onSend(message) {
-          console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`);
+          console.log(`[lark-agent-bridge] outbound -> ${message.sessionId}: ${message.text}`);
         },
         onReact(message) {
-          console.log(`[codex-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`);
+          console.log(`[lark-agent-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`);
         },
       }), sendToOpenId: null, sendCardToOpenId: null, downloadFile: null };
 
@@ -267,13 +272,13 @@ export async function run(): Promise<void> {
       if (restartInFlight) {
         await app?.larkAdapter.send({
           targetSessionId: sessionId,
-          text: '[codex-bridge] restart already in progress',
+          text: '[lark-agent-bridge] restart already in progress',
         });
         return;
       }
 
       restartInFlight = true;
-      console.log(`[codex-bridge] restart requested by ${senderId} in ${sessionId}`);
+      console.log(`[lark-agent-bridge] restart requested by ${senderId} in ${sessionId}`);
 
       try {
         await app?.stop();
@@ -382,14 +387,14 @@ export async function run(): Promise<void> {
     },
     reloadProjects: async () => {
       if (reloadProjectsHandler === null) {
-        return ['[codex-bridge] project reload is not configured'];
+        return ['[lark-agent-bridge] project reload is not configured'];
       }
 
       return await reloadProjectsHandler();
     },
     executeStructuredCodexCommand: async (input) => {
       if (projectRegistryImpl === null) {
-        return ['[codex-bridge] codex command support is not configured'];
+        return ['[lark-agent-bridge] codex command support is not configured'];
       }
 
       const result = await projectRegistryImpl.executeCommand(input.projectInstanceId, {
@@ -429,7 +434,7 @@ export async function run(): Promise<void> {
       command: 'codex',
       args: ['app-server'],
       cwd: consoleRuntime.cwd,
-      serviceName: 'codex-bridge',
+      serviceName: 'lark-agent-bridge',
       transport: 'websocket',
       websocketUrl: 'ws://127.0.0.1:4000',
     };
@@ -439,7 +444,7 @@ export async function run(): Promise<void> {
       args: project.args,
       cwd: project.cwd ?? consoleRuntime.cwd,
       clientInfo: {
-        name: 'codex-bridge',
+        name: 'lark-agent-bridge',
         title: 'Codex Bridge',
         version: '0.1.0',
       },
@@ -470,13 +475,13 @@ export async function run(): Promise<void> {
         const error = message.params?.error;
         const errorMessage = typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '') : '';
         if (errorMessage) {
-          process.stderr.write(`[codex-bridge] ${errorMessage}\n`);
+          process.stderr.write(`[lark-agent-bridge] ${errorMessage}\n`);
         }
         return;
       }
 
       if (message.method === 'turn/started') {
-        process.stderr.write('[codex-bridge] turn started\n');
+        process.stderr.write('[lark-agent-bridge] turn started\n');
         return;
       }
 
@@ -485,14 +490,14 @@ export async function run(): Promise<void> {
         const status =
           typeof turn === 'object' && turn !== null && 'status' in turn ? String((turn as { status?: unknown }).status ?? '') : '';
         if (status) {
-          process.stderr.write(`[codex-bridge] turn completed: ${status}\n`);
+          process.stderr.write(`[lark-agent-bridge] turn completed: ${status}\n`);
         }
 
         const error = typeof turn === 'object' && turn !== null && 'error' in turn ? (turn as { error?: unknown }).error : undefined;
         const errorMessage =
           typeof error === 'object' && error !== null && 'message' in error ? String((error as { message?: unknown }).message ?? '') : '';
         if (errorMessage) {
-          process.stderr.write(`[codex-bridge] turn error: ${errorMessage}\n`);
+          process.stderr.write(`[lark-agent-bridge] turn error: ${errorMessage}\n`);
         }
         return;
       }
@@ -501,7 +506,7 @@ export async function run(): Promise<void> {
         const status = message.params?.status;
         const type = typeof status === 'object' && status !== null && 'type' in status ? String((status as { type?: unknown }).type ?? '') : '';
         if (type) {
-          process.stderr.write(`[codex-bridge] thread status: ${type}\n`);
+          process.stderr.write(`[lark-agent-bridge] thread status: ${type}\n`);
         }
       }
     };
@@ -523,6 +528,17 @@ export async function run(): Promise<void> {
       return entry;
     },
     createClient: (projectInstanceId: string, config) => {
+      const command = typeof config.command === 'string' && config.command.trim() !== '' ? config.command.trim() : 'codex';
+      const args = Array.isArray(config.args) && config.args.length > 0 ? config.args : ['app-server'];
+      const serviceName = typeof config.serviceName === 'string' && config.serviceName.trim() !== '' ? config.serviceName.trim() : 'lark-agent-bridge';
+      const transport = config.transport === 'stdio' ? 'stdio' : 'websocket';
+      const websocketUrl =
+        transport === 'stdio'
+          ? undefined
+          : typeof config.websocketUrl === 'string' && config.websocketUrl.trim() !== ''
+            ? config.websocketUrl.trim()
+            : 'ws://127.0.0.1:4000';
+
       if (config.adapterType === 'opencode') {
         return new OpencodeClient({
           projectInstanceId,
@@ -546,18 +562,18 @@ export async function run(): Promise<void> {
         return new QwenCodeClient({
           cwd: config.cwd,
           model: config.model,
-          pathToQwenExecutable: config.qwenExecutable ?? (config.command !== 'codex' ? config.command : undefined),
+          pathToQwenExecutable: config.qwenExecutable ?? (command !== 'codex' ? command : undefined),
         });
       }
       return new CodexAppServerClient({
-        command: config.command,
-        args: config.args,
+        command,
+        args,
         cwd: config.cwd,
-        clientInfo: { name: 'codex-bridge', title: 'Codex Bridge', version: '0.1.0' },
+        clientInfo: { name: 'lark-agent-bridge', title: 'Codex Bridge', version: '0.1.0' },
         getModel: () => config.model ?? projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId)?.model,
-        serviceName: config.serviceName,
-        transport: config.transport,
-        websocketUrl: config.websocketUrl,
+        serviceName,
+        transport,
+        websocketUrl,
       });
     },
     getLastThread: (projectInstanceId: string, sessionId: string) =>
@@ -646,7 +662,7 @@ export async function run(): Promise<void> {
     router: app.router,
     onStatusChange: async ({ projectInstanceId, status, reason, source }) => {
       console.log(
-        `[codex-bridge] project status -> project=${projectInstanceId} status=${status} source=${source ?? 'unknown'} reason="${reason ?? ''}"`,
+        `[lark-agent-bridge] project status -> project=${projectInstanceId} status=${status} source=${source ?? 'unknown'} reason="${reason ?? ''}"`,
       );
       const sessionId = await app.bindingService.getSessionByProject(projectInstanceId);
       if (sessionId === null) {
@@ -684,17 +700,17 @@ export async function run(): Promise<void> {
   });
   reloadProjectsHandler = async () => {
     if (projectConfigWatcher === null) {
-      return ['[codex-bridge] project reload is not configured'];
+      return ['[lark-agent-bridge] project reload is not configured'];
     }
 
     const projects = await projectConfigWatcher.reload();
-    return [`[codex-bridge] reloaded projects: ${projects.length}`];
+    return [`[lark-agent-bridge] reloaded projects: ${projects.length}`];
   };
 
   projectConfigEntries = await projectConfigWatcher.reload();
   await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
 
-  console.log(`[codex-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
+  console.log(`[lark-agent-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
 
   await app.start();
   await restoreBoundProjects();
@@ -702,15 +718,16 @@ export async function run(): Promise<void> {
 
   // Send startup notification to specified openId
   const startupNotifyOpenId = process.env.BRIDGE_STARTUP_NOTIFY_OPENID;
+  const appDisplayName = resolveStartupNotificationTitle();
   if (sendToOpenId && startupNotifyOpenId) {
     try {
       await sendCardToOpenId(startupNotifyOpenId, buildStartupNotificationCard({
-        title: 'codex-bridge',
-        bodyMarkdown: '[codex-bridge] 已上线',
+        title: appDisplayName,
+        bodyMarkdown: `[${appDisplayName}] 已上线`,
       }));
-      console.log(`[codex-bridge] startup notification sent to ${startupNotifyOpenId}`);
+      console.log(`[lark-agent-bridge] startup notification sent to ${startupNotifyOpenId}`);
     } catch (err) {
-      console.warn(`[codex-bridge] failed to send startup notification:`, err);
+      console.warn(`[lark-agent-bridge] failed to send startup notification:`, err);
     }
   }
 
@@ -721,7 +738,7 @@ export async function run(): Promise<void> {
       server.once('error', reject);
       server.listen(config.server.port, config.server.host, () => {
         console.log(
-          `[codex-bridge] listening on http://${config.server.host}:${config.server.port} (storage: ${storagePath})`,
+          `[lark-agent-bridge] listening on http://${config.server.host}:${config.server.port} (storage: ${storagePath})`,
         );
         resolve();
       });
@@ -732,10 +749,10 @@ export async function run(): Promise<void> {
       throw error;
     }
 
-    console.warn('[codex-bridge] HTTP listen is unavailable in this environment, continuing in dry-run mode');
+    console.warn('[lark-agent-bridge] HTTP listen is unavailable in this environment, continuing in dry-run mode');
     keepAlive = setInterval(() => {}, 60_000);
     console.log(
-      `[codex-bridge] dry-run active (storage: ${storagePath}); set BRIDGE_PORT/BRIDGE_HOST in a normal environment to enable HTTP`,
+      `[lark-agent-bridge] dry-run active (storage: ${storagePath}); set BRIDGE_PORT/BRIDGE_HOST in a normal environment to enable HTTP`,
     );
   }
 
@@ -842,8 +859,8 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
       });
     },
     onStderr: (text) => process.stderr.write(text),
-    onSend: (message) => console.log(`[codex-bridge] outbound -> ${message.sessionId}: ${message.text}`),
-    onReact: (message) => console.log(`[codex-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`),
+    onSend: (message) => console.log(`[lark-agent-bridge] outbound -> ${message.sessionId}: ${message.text}`),
+    onReact: (message) => console.log(`[lark-agent-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`),
   });
 
   // Function to send message to open_id
@@ -878,7 +895,7 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   void run().catch((error) => {
-    console.error('[codex-bridge] fatal startup error');
+    console.error('[lark-agent-bridge] fatal startup error');
     console.error(error);
     process.exitCode = 1;
   });

@@ -197,7 +197,7 @@ function formatUnavailableProjectMessage(input: {
   recovery: 'restore not attempted' | 'restored handler but route still failed' | 'restore failed' | 'restore retry exhausted';
   recoveryReason?: string | null;
 }): string {
-  const lines = [`[codex-bridge] bound project is unavailable: ${input.projectId}`];
+  const lines = [`[lark-agent-bridge] bound project is unavailable: ${input.projectId}`];
   lines.push(`status: ${input.diagnostics?.status ?? 'unknown'}`);
   lines.push(`configured: ${formatBooleanFlag(input.state.configured)}`);
   lines.push(`active: ${formatBooleanFlag(input.state.active)}`);
@@ -226,22 +226,22 @@ function buildProjectFooterItems(projectId: string, projectConfig?: { cwd?: stri
 }
 
 function buildProcessingStatusFallback(projectId: string, text: string): string {
-  return `[codex-bridge] processing request for ${projectId}\n${text}`;
+  return `[lark-agent-bridge] processing request for ${projectId}\n${text}`;
 }
 
 function buildCompletionStatusFallback(projectId: string): string {
-  return `[codex-bridge] completed request for ${projectId}`;
+  return `[lark-agent-bridge] completed request for ${projectId}`;
 }
 
 function deriveCommandCardTitle(text: string): string {
   const trimmed = text.trim();
   if (trimmed === '') {
-    return 'codex-bridge';
+    return 'lark-agent-bridge';
   }
 
-  const token = trimmed.split(/\s+/)[0] ?? 'codex-bridge';
+  const token = trimmed.split(/\s+/)[0] ?? 'lark-agent-bridge';
   const normalized = token.startsWith('//') ? token.slice(2) : token;
-  return normalized === '' ? 'codex-bridge' : normalized;
+  return normalized === '' ? 'lark-agent-bridge' : normalized;
 }
 
 type ActiveStatusCard = {
@@ -292,7 +292,7 @@ function buildRealtimeStatusPresentation(input: {
         footerItems: input.footerItems,
         template: 'yellow',
       }),
-      fallbackText: `[codex-bridge] waiting approval for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
+      fallbackText: `[lark-agent-bridge] waiting approval for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
     };
   }
 
@@ -305,7 +305,7 @@ function buildRealtimeStatusPresentation(input: {
         footerItems: input.footerItems,
         template: 'yellow',
       }),
-      fallbackText: `[codex-bridge] reconnecting ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
+      fallbackText: `[lark-agent-bridge] reconnecting ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
     };
   }
 
@@ -332,7 +332,7 @@ function buildRealtimeStatusPresentation(input: {
         footerItems: input.footerItems,
         template: 'red',
       }),
-      fallbackText: `[codex-bridge] failed request for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
+      fallbackText: `[lark-agent-bridge] failed request for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
     };
   }
 
@@ -344,7 +344,7 @@ function buildRealtimeStatusPresentation(input: {
       footerItems: input.footerItems,
       template: 'blue',
     }),
-    fallbackText: `[codex-bridge] processing request for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
+    fallbackText: `[lark-agent-bridge] processing request for ${input.projectTitle}${input.reason?.trim() ? `\n${input.reason}` : ''}`,
   };
 }
 
@@ -481,7 +481,7 @@ export function createBridgeApp(options: {
       } catch (error) {
         const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
         console.error(
-          `[codex-bridge] status card update failed: project=${input.projectId} session=${input.sessionId} messageId=${entry.messageId} status=${input.status} reason="${reason}"`,
+          `[lark-agent-bridge] status card update failed: project=${input.projectId} session=${input.sessionId} messageId=${entry.messageId} status=${input.status} reason="${reason}"`,
         );
         updated = false;
       }
@@ -567,7 +567,7 @@ export function createBridgeApp(options: {
             bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
             codexCommands: [...HELP_CARD_CODEX_COMMANDS],
           }),
-          fallbackText: '[codex-bridge] this chat is not bound to any project',
+          fallbackText: '[lark-agent-bridge] this chat is not bound to any project',
         });
         return;
       }
@@ -579,10 +579,10 @@ export function createBridgeApp(options: {
           targetSessionId: message.sessionId,
           card: buildCommandResultCard({
             title: 'read',
-            lines: ['[codex-bridge] project cwd is not configured for //read'],
+            lines: ['[lark-agent-bridge] project cwd is not configured for //read'],
             footerItems: buildProjectFooterItems(projectId, projectConfig),
           }),
-          fallbackText: '[codex-bridge] project cwd is not configured for //read',
+          fallbackText: '[lark-agent-bridge] project cwd is not configured for //read',
         });
         return;
       }
@@ -598,10 +598,10 @@ export function createBridgeApp(options: {
             targetSessionId: message.sessionId,
             card: buildCommandResultCard({
               title: 'read',
-              lines: ['[codex-bridge] //read only supports files under the project cwd'],
+              lines: ['[lark-agent-bridge] //read only supports files under the project cwd'],
               footerItems: buildProjectFooterItems(projectId, projectConfig),
             }),
-            fallbackText: '[codex-bridge] //read only supports files under the project cwd',
+            fallbackText: '[lark-agent-bridge] //read only supports files under the project cwd',
           });
           return;
         }
@@ -633,10 +633,10 @@ export function createBridgeApp(options: {
           targetSessionId: message.sessionId,
           card: buildCommandResultCard({
             title: 'read',
-            lines: [`[codex-bridge] failed to read file: ${messageText}`],
+            lines: [`[lark-agent-bridge] failed to read file: ${messageText}`],
             footerItems: buildProjectFooterItems(projectId, projectConfig),
           }),
-          fallbackText: `[codex-bridge] failed to read file: ${messageText}`,
+          fallbackText: `[lark-agent-bridge] failed to read file: ${messageText}`,
         });
       }
       return;
@@ -855,7 +855,7 @@ export function createBridgeApp(options: {
         : '';
 
       const fallbackText =
-        `[codex-bridge] unbound session. chatId: ${message.sessionId}, openId: ${message.senderId}${attachmentNote}\n\nCommands:\n  //bind <projectId> - bind this chat to a project\n  //unbind - unbind this chat\n  //list - list all bindings\n  //projects - list all projects\n  //providers - list providers for the bound project\n  //provider <name> - switch the active provider\n  //new - start a new codex thread for this chat\n  //status - show bridge and codex state\n  //reload projects - reload projects.json\n  //help - show this help`;
+        `[lark-agent-bridge] unbound session. chatId: ${message.sessionId}, openId: ${message.senderId}${attachmentNote}\n\nCommands:\n  //bind <projectId> - bind this chat to a project\n  //unbind - unbind this chat\n  //list - list all bindings\n  //projects - list all projects\n  //providers - list providers for the bound project\n  //provider <name> - switch the active provider\n  //new - start a new codex thread for this chat\n  //status - show bridge and codex state\n  //reload projects - reload projects.json\n  //help - show this help`;
 
       if (hasAttachments) {
         // When there are attachments, use a content card that shows the attachment warning
@@ -902,7 +902,7 @@ export function createBridgeApp(options: {
       recoveryReason,
     });
     console.error(
-      `[codex-bridge] bound project unavailable: project=${bound} session=${message.sessionId} status=${diagnostics?.status ?? 'unknown'} configured=${state.configured} active=${state.active} removed=${state.removed} handler=${hasHandler} recovery="${recoveryState}" reason="${recoveryReason ?? diagnostics?.reason ?? ''}" source="${diagnostics?.source ?? ''}"`,
+      `[lark-agent-bridge] bound project unavailable: project=${bound} session=${message.sessionId} status=${diagnostics?.status ?? 'unknown'} configured=${state.configured} active=${state.active} removed=${state.removed} handler=${hasHandler} recovery="${recoveryState}" reason="${recoveryReason ?? diagnostics?.reason ?? ''}" source="${diagnostics?.source ?? ''}"`,
     );
     const unavailableCard = buildUnavailableProjectCard({
       projectId: bound,
@@ -921,7 +921,7 @@ export function createBridgeApp(options: {
       } catch (error) {
         const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
         console.error(
-          `[codex-bridge] status card update failed: project=${bound} session=${message.sessionId} messageId=${statusCardMessageId} status=unavailable reason="${reason}"`,
+          `[lark-agent-bridge] status card update failed: project=${bound} session=${message.sessionId} messageId=${statusCardMessageId} status=unavailable reason="${reason}"`,
         );
         updated = false;
       }

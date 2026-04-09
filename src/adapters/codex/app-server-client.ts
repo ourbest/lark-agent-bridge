@@ -144,7 +144,7 @@ export class CodexAppServerClient {
       model: this.resolveModel('gpt-5.4-mini'),
       sandbox: 'workspace-write',
       personality: 'friendly',
-      serviceName: this.options.serviceName ?? 'codex-bridge',
+      serviceName: this.options.serviceName ?? 'lark-agent-bridge',
     });
 
     const threadId = this.readString(response, ['thread', 'id']);
@@ -283,7 +283,7 @@ export class CodexAppServerClient {
       cwd,
       model: this.options.model ?? 'gpt-5.4-mini',
       sandbox: 'workspace-write',
-      serviceName: this.options.serviceName ?? 'codex-bridge',
+      serviceName: this.options.serviceName ?? 'lark-agent-bridge',
     });
 
     const threadId = this.readString(response, ['thread', 'id']);
