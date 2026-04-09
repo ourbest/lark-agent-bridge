@@ -2,18 +2,19 @@
   "projects": [
     {
       "projectInstanceId": "project-a",
-      "command": "codex",
-      "args": ["app-server"],
       "cwd": "/absolute/path/to/project-a",
-      "serviceName": "project-a",
-      "transport": "stdio"
+      "providers": []
     },
     {
       "projectInstanceId": "repo-opencode",
       "adapterType": "opencode",
       "cwd": "/absolute/path/to/repo-opencode",
-      "serviceName": "repo-opencode",
-      "transport": "stdio",
+      "providers": [
+        {
+          "provider": "codex",
+          "transport": "stdio"
+        }
+      ],
       "opencodeHostname": "127.0.0.1",
       "opencodePort": 4101
     }
