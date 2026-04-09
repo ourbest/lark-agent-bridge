@@ -92,10 +92,10 @@ Bindings persist to `BRIDGE_STORAGE_PATH` (default `./data/bridge.json`). Two st
 | `//reload projects` | Reload `projects.json` immediately |
 | `//resume <threadId|last>` | Resume a Codex thread for the current chat |
 | `//help` | Show help |
-| `app/list` | List supported Codex apps for the bound project |
-| `session/list` | List Codex sessions for the bound project |
-| `session/get <id>` | Inspect one Codex session |
-| `thread/get <id>` | Inspect one Codex thread |
+| `//app/list` | List supported Codex apps for the bound project |
+| `//session/list` | List Codex sessions for the bound project |
+| `//thread/list` | List Codex threads for the bound project |
+| `//thread/read <id>` | Inspect one Codex thread |
 
 ## HTTP API (port 3000)
 

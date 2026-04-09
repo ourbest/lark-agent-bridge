@@ -165,17 +165,14 @@ These commands are forwarded to the bound Codex project:
 | `//review --commit <sha>` | Review a specific commit |
 | `//review <instructions>` | Review with custom instructions |
 
-Interactive commands also render as cards:
+These commands render as cards when sent with the `//` prefix. Bare commands without `//` are rejected.
 
 ```
-app/list
-session/list
-session/get <id>
-thread/list
-thread/start
-thread/get <id>
-thread/read <id>
-review
+//app/list
+//session/list
+//thread/list
+//thread/read <id>
+//review
 ```
 
 ## HTTP API

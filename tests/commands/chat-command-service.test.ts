@@ -472,14 +472,7 @@ test('rejects bare codex commands without the // prefix', async () => {
     projectRegistry: registry,
   });
 
-  const lines = await service.execute({
-    sessionId: 'chat-a',
-    senderId: 'user-a',
-    text: 'app/list',
-  });
-
-  assert.deepEqual(lines, [
-    '[lark-agent-bridge] unknown command: app/list',
+  const expected = [
     '[lark-agent-bridge] commands:',
     '  //bind <projectId>  - bind this chat to a project',
     '  //unbind            - unbind this chat',
@@ -505,7 +498,17 @@ test('rejects bare codex commands without the // prefix', async () => {
     '  //thread/list       - list codex threads',
     '  //thread/read <id>  - inspect a codex thread',
     '  //review            - review the current working tree',
-  ]);
+  ];
+
+  for (const command of ['app/list', 'session/list', 'session/get abc', 'thread/list', 'thread/start', 'thread/get abc', 'thread/read abc', 'review']) {
+    const lines = await service.execute({
+      sessionId: 'chat-a',
+      senderId: 'user-a',
+      text: command,
+    });
+
+    assert.deepEqual(lines, [`[lark-agent-bridge] unknown command: ${command}`, ...expected]);
+  }
 });
 
 test('lists projects with //projects', async () => {
