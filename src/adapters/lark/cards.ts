@@ -34,7 +34,12 @@ function plainText(content: string): CardTextItem {
 }
 
 function buildFooterText(items: CardFooterItem[]): string {
-  return items.map((item) => `${item.label}: ${item.value}`).join(' | ');
+  return items
+    .map((item) => {
+      const label = item.label.trim();
+      return label === '' ? item.value : `${label}: ${item.value}`;
+    })
+    .join(' | ');
 }
 
 function escapeHtml(text: string): string {
@@ -67,6 +72,7 @@ export function buildProjectReplyCard(input: {
     schema: '2.0',
     config: {
       enable_forward: true,
+      wide_screen_mode: true,
       update_multi: true,
       width_mode: 'fill',
     },
@@ -113,6 +119,7 @@ export function buildBridgeStatusCard(input: {
     schema: '2.0',
     config: {
       enable_forward: true,
+      wide_screen_mode: true,
       update_multi: true,
       width_mode: 'fill',
     },
@@ -150,6 +157,7 @@ export function buildMarkdownContentCard(input: {
     schema: '2.0',
     config: {
       enable_forward: true,
+      wide_screen_mode: true,
       update_multi: true,
       width_mode: 'fill',
     },
@@ -205,20 +213,41 @@ export function buildCommandResultCard(input: {
   });
 }
 
+function buildApprovalButton(action: string, requestId: string, content: string, primary = false): Record<string, unknown> {
+  return {
+    tag: 'button',
+    type: primary ? 'primary' : 'default',
+    text: { tag: 'plain_text', content },
+    value: { action, requestId },
+  };
+}
+
 export function buildApprovalCard(input: {
   title: string;
   subtitle?: string;
   bodyMarkdown: string;
   footerItems: CardFooterItem[];
+  requestId: string | number;
 }): FeishuInteractiveCardMessage {
+  const requestIdStr = String(input.requestId);
+  const buttons = [
+    buildApprovalButton('approve', requestIdStr, '授权', true),
+    buildApprovalButton('approve-all', requestIdStr, '授权所有'),
+    buildApprovalButton('approve-auto', requestIdStr, '自动授权'),
+    buildApprovalButton('deny', requestIdStr, '拒绝'),
+  ];
+
   const elements: Array<Record<string, unknown>> = [
+    { tag: 'markdown', content: input.bodyMarkdown },
     {
-      tag: 'markdown',
-      content: input.bodyMarkdown,
+      tag: 'column_set',
+      columns: buttons.map((btn) => ({
+        tag: 'column',
+        width: 'stretch',
+        elements: [btn],
+      })),
     },
-    {
-      tag: 'hr',
-    },
+    { tag: 'hr' },
     buildFooterMarkdown(input.footerItems),
   ];
 
@@ -238,6 +267,34 @@ export function buildApprovalCard(input: {
     body: {
       elements,
     },
+  });
+}
+
+export function buildApprovalResultCard(input: {
+  title: string;
+  subtitle?: string;
+  status: 'approved' | 'approved-all' | 'auto-approved' | 'denied';
+  footerItems: CardFooterItem[];
+}): FeishuInteractiveCardMessage {
+  const bodyMarkdown = (() => {
+    switch (input.status) {
+      case 'approved':
+        return '✅ 已授权。';
+      case 'approved-all':
+        return '✅ 已授权所有待处理请求。';
+      case 'auto-approved':
+        return '✅ 已开启自动授权并处理了当前待处理请求。';
+      case 'denied':
+        return '⛔ 已拒绝。';
+    }
+  })();
+
+  return buildMarkdownContentCard({
+    title: input.title,
+    subtitle: input.subtitle,
+    bodyMarkdown,
+    footerItems: input.footerItems,
+    template: input.status === 'denied' ? 'red' : input.status === 'auto-approved' ? 'turquoise' : 'green',
   });
 }
 
@@ -472,6 +529,49 @@ function readNestedRecord(value: unknown, key: string): unknown {
   return record[key];
 }
 
+function readActionKind(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const candidates = [record.action, record.type, record.command, record.name];
+  for (const candidate of candidates) {
+    const action = readActionKind(candidate);
+    if (action !== null) {
+      return action;
+    }
+  }
+
+  return null;
+}
+
+function readActionRequestId(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return readString(value);
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const candidates = [record.requestId, record.request_id, record.id, record.value];
+  for (const candidate of candidates) {
+    const requestId = readActionRequestId(candidate);
+    if (requestId !== null) {
+      return requestId;
+    }
+  }
+
+  return null;
+}
+
 export function extractCardActionCommand(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) {
     return null;
@@ -495,6 +595,55 @@ export function extractCardActionCommand(payload: unknown): string | null {
   return null;
 }
 
+export function extractCardActionDetails(payload: unknown): {
+  action: 'approve' | 'approve-all' | 'approve-auto' | 'deny';
+  requestId: string | null;
+} | null {
+  if (typeof payload !== 'object' || payload === null) {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const candidates = [
+    record.action,
+    record.value,
+    record.card_action,
+    record.event,
+    readNestedRecord(record.action, 'value'),
+    readNestedRecord(record.value, 'value'),
+    readNestedRecord(record.card_action, 'value'),
+    readNestedRecord(record.event, 'value'),
+    readNestedRecord(record.message, 'action'),
+    readNestedRecord(record.message, 'value'),
+    readNestedRecord(record.message, 'card_action'),
+    readNestedRecord(readNestedRecord(record.message, 'action'), 'value'),
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'object' || candidate === null) {
+      continue;
+    }
+
+    const action = readActionKind(candidate);
+    if (action !== 'approve' && action !== 'approve-all' && action !== 'approve-auto' && action !== 'deny') {
+      continue;
+    }
+
+    const requestId =
+      readActionRequestId(readNestedRecord(candidate, 'requestId')) ??
+      readActionRequestId(readNestedRecord(candidate, 'request_id')) ??
+      readActionRequestId(readNestedRecord(candidate, 'id')) ??
+      readActionRequestId(candidate);
+
+    return {
+      action,
+      requestId,
+    };
+  }
+
+  return null;
+}
+
 export function extractCardActionSessionId(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) {
     return null;
@@ -510,6 +659,8 @@ export function extractCardActionSessionId(payload: unknown): string | null {
     readNestedRecord(record.message, 'chatId'),
     readNestedRecord(record.event, 'chat_id'),
     readNestedRecord(record.event, 'session_id'),
+    readNestedRecord(record.context, 'open_chat_id'),
+    readNestedRecord(record.context, 'chat_id'),
   ];
 
   for (const candidate of candidates) {

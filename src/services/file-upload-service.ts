@@ -19,6 +19,12 @@ export interface FileUploadResult {
     fileSize: number;
     attachmentType: 'image' | 'file';
   }>;
+  /** 下载失败的附件错误信息 */
+  errors: Array<{
+    fileName: string;
+    fileKey: string;
+    reason: string;
+  }>;
 }
 
 /**
@@ -28,7 +34,7 @@ export async function saveMessageAttachments(options: FileUploadOptions): Promis
   const { cwd, attachments, downloadFile } = options;
 
   if (attachments.length === 0) {
-    return { savedFiles: [] };
+    return { savedFiles: [], errors: [] };
   }
 
   // 创建 .upload 目录
@@ -67,6 +73,7 @@ export async function saveMessageAttachments(options: FileUploadOptions): Promis
   );
 
   const savedFiles: FileUploadResult['savedFiles'] = [];
+  const errors: FileUploadResult['errors'] = [];
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value !== null) {
       savedFiles.push(result.value);
@@ -74,11 +81,17 @@ export async function saveMessageAttachments(options: FileUploadOptions): Promis
       const reason = result.status === 'rejected'
         ? (result.reason instanceof Error ? result.reason.message : String(result.reason))
         : 'unknown';
+      const attachment = attachments[results.indexOf(result)];
+      errors.push({
+        fileName: attachment?.fileName ?? 'unknown',
+        fileKey: attachment?.fileKey ?? 'unknown',
+        reason,
+      });
       console.error(`[file-upload] failed to save file: ${reason}`);
     }
   }
 
-  return { savedFiles };
+  return { savedFiles, errors };
 }
 
 /**

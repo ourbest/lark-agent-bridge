@@ -74,6 +74,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//approve <id>', description: 'Approve a single request.' },
   { command: '//approve-all <id>', description: 'Approve the request for the whole chat session.' },
   { command: '//approve-auto <minutes>', description: 'Auto-approve approval requests in this chat for N minutes.' },
+  { command: '//approve-test', description: 'Create a test approval card for manual button checks.' },
   { command: '//deny <id>', description: 'Deny a pending request.' },
   { command: '//help', description: 'Show this help card.' },
 ] as const;
@@ -94,6 +95,23 @@ function isHelpCommand(text: string): boolean {
 function isRestartCommand(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   return normalized === '//restart';
+}
+
+function isApproveTestCommand(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized === '//approve-test';
+}
+
+function hashToBase36(input: string): string {
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function buildApproveTestRequestId(messageId: string): string {
+  return `approve-test-${hashToBase36(messageId)}`;
 }
 
 function parseReadCommand(text: string): { kind: 'usage' } | { kind: 'read'; targetPath: string } | null {
@@ -217,11 +235,16 @@ function formatUnavailableProjectMessage(input: {
   return lines.join('\n');
 }
 
-function buildProjectFooterItems(projectId: string, projectConfig?: { cwd?: string | null; transport?: string | null } | null): CardFooterItem[] {
+function buildProjectFooterItems(
+  projectId: string,
+  projectConfig?: { cwd?: string | null; transport?: string | null; activeProvider?: string | null } | null,
+  activeProvider?: string | null,
+): CardFooterItem[] {
   return [
-    { label: 'Project', value: projectId },
-    { label: 'PATH', value: projectConfig?.cwd ?? 'n/a' },
-    { label: 'Transport', value: projectConfig?.transport ?? 'n/a' },
+    { label: '', value: projectId },
+    { label: '', value: projectConfig?.cwd ?? 'n/a' },
+    { label: '', value: activeProvider ?? projectConfig?.activeProvider ?? 'n/a' },
+    { label: '', value: projectConfig?.transport ?? 'n/a' },
   ];
 }
 
@@ -379,6 +402,8 @@ export function createBridgeApp(options: {
   };
   approvalService?: ApprovalService;
   reloadProjects?: () => Promise<string[]>;
+  addLocalProject?(input: { path: string; id?: string }): Promise<{ projectInstanceId: string; cwd: string }>;
+  addRemoteProject?(input: { gitRemote: string }): Promise<{ projectInstanceId: string; cwd: string }>;
   codexStatusProvider?: () => Promise<string[]>;
   executeCodexCommand?: (input: {
     sessionId: string;
@@ -408,9 +433,14 @@ export function createBridgeApp(options: {
   });
   const chatCommandService = createChatCommandService({
     bindingService,
-    projectRegistry: options.projectRegistry,
+    projectRegistry: {
+      ...options.projectRegistry,
+      listProjectProviders: options.projectRegistry.getProjectProviders,
+    },
     approvalService: options.approvalService,
     reloadProjects: options.reloadProjects,
+    addLocalProject: options.addLocalProject,
+    addRemoteProject: options.addRemoteProject,
     getCodexStatusLines: options.codexStatusProvider ?? readCodexStatusLines,
     executeCodexCommand: options.executeCodexCommand,
     executeStructuredCodexCommand: options.executeStructuredCodexCommand,
@@ -535,12 +565,51 @@ export function createBridgeApp(options: {
   });
 
   async function handleInboundMessage(message: InboundMessage, react: boolean): Promise<void> {
+    console.log(`[bridge] handleInboundMessage: messageId=${message.messageId}, sessionId=${message.sessionId}, text="${message.text.substring(0, 100)}${message.text.length > 100 ? '...' : ''}", attachments=${message.attachments?.length ?? 0}, cardAction=${message.cardAction !== undefined}, react=${react}`);
+
     options.onInboundMessage?.({
       sessionId: message.sessionId,
       messageId: message.messageId,
       senderId: message.senderId,
       text: message.text,
     });
+
+    if (message.cardAction !== undefined && options.approvalService !== undefined) {
+      const projectId = await bindingService.getProjectBySession(message.sessionId);
+      if (projectId !== null) {
+        const result = await options.approvalService.handleAction({
+          sessionId: message.sessionId,
+          projectInstanceId: projectId,
+          action: message.cardAction.action,
+          requestId: message.cardAction.requestId,
+        });
+
+        if (result !== null) {
+          for (const update of result.updates) {
+            const messageId = update.messageId ?? (update.requestId === message.messageId ? message.messageId : null);
+            if (messageId === null) {
+              continue;
+            }
+
+            try {
+              await larkAdapter.updateCard({
+                sessionId: message.sessionId,
+                messageId,
+                card: update.card,
+                fallbackText: result.lines.join('\n'),
+              });
+            } catch (error) {
+              const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
+              console.error(
+                `[lark-agent-bridge] approval card update failed: project=${projectId} session=${message.sessionId} messageId=${messageId} reason="${reason}"`,
+              );
+            }
+          }
+        }
+      }
+
+      return;
+    }
 
     const text = message.text.trim();
     const readCommand = parseReadCommand(text);
@@ -580,7 +649,13 @@ export function createBridgeApp(options: {
           card: buildCommandResultCard({
             title: 'read',
             lines: ['[lark-agent-bridge] project cwd is not configured for //read'],
-            footerItems: buildProjectFooterItems(projectId, projectConfig),
+            footerItems: buildProjectFooterItems(
+              projectId,
+              projectConfig,
+              options.projectRegistry.getActiveProvider === undefined
+                ? projectConfig?.activeProvider ?? null
+                : await options.projectRegistry.getActiveProvider(projectId),
+            ),
           }),
           fallbackText: '[lark-agent-bridge] project cwd is not configured for //read',
         });
@@ -599,7 +674,13 @@ export function createBridgeApp(options: {
             card: buildCommandResultCard({
               title: 'read',
               lines: ['[lark-agent-bridge] //read only supports files under the project cwd'],
-              footerItems: buildProjectFooterItems(projectId, projectConfig),
+              footerItems: buildProjectFooterItems(
+                projectId,
+                projectConfig,
+                options.projectRegistry.getActiveProvider === undefined
+                  ? projectConfig?.activeProvider ?? null
+                  : await options.projectRegistry.getActiveProvider(projectId),
+              ),
             }),
             fallbackText: '[lark-agent-bridge] //read only supports files under the project cwd',
           });
@@ -634,10 +715,80 @@ export function createBridgeApp(options: {
           card: buildCommandResultCard({
             title: 'read',
             lines: [`[lark-agent-bridge] failed to read file: ${messageText}`],
-            footerItems: buildProjectFooterItems(projectId, projectConfig),
+            footerItems: buildProjectFooterItems(
+              projectId,
+              projectConfig,
+              options.projectRegistry.getActiveProvider === undefined
+                ? projectConfig?.activeProvider ?? null
+                : await options.projectRegistry.getActiveProvider(projectId),
+            ),
           }),
           fallbackText: `[lark-agent-bridge] failed to read file: ${messageText}`,
         });
+      }
+      return;
+    }
+
+    if (isApproveTestCommand(text)) {
+      const projectId = await bindingService.getProjectBySession(message.sessionId);
+      if (projectId === null) {
+        await larkAdapter.sendCard({
+          targetSessionId: message.sessionId,
+          card: buildCommandResultCard({
+            title: 'approve-test',
+            lines: ['[lark-agent-bridge] this chat is not bound to any project'],
+          }),
+          fallbackText: '[lark-agent-bridge] this chat is not bound to any project',
+        });
+        return;
+      }
+
+      if (options.approvalService === undefined) {
+        await larkAdapter.sendCard({
+          targetSessionId: message.sessionId,
+          card: buildCommandResultCard({
+            title: 'approve-test',
+            lines: ['[lark-agent-bridge] approval service is not configured'],
+          }),
+          fallbackText: '[lark-agent-bridge] approval service is not configured',
+        });
+        return;
+      }
+
+      const requestId = buildApproveTestRequestId(message.messageId);
+      const result = await options.approvalService.registerRequest({
+        requestId,
+        projectInstanceId: projectId,
+        sessionId: message.sessionId,
+        threadId: message.messageId,
+        turnId: message.messageId,
+        itemId: message.messageId,
+        kind: 'commandExecution',
+        command: '//approve-test',
+        reason: 'Test approval card generated by //approve-test',
+        forcePending: true,
+        respond: async () => {},
+      });
+
+      if (result.card === null) {
+        await larkAdapter.sendCard({
+          targetSessionId: message.sessionId,
+          card: buildCommandResultCard({
+            title: 'approve-test',
+            lines: result.lines,
+          }),
+          fallbackText: result.lines.join('\n'),
+        });
+        return;
+      }
+
+      const sent = await larkAdapter.sendCard({
+        targetSessionId: message.sessionId,
+        card: result.card,
+        fallbackText: result.lines.join('\n'),
+      });
+      if (sent?.messageId !== undefined && sent.messageId !== '') {
+        await options.approvalService.attachCardMessage(requestId, sent.messageId);
       }
       return;
     }
@@ -711,6 +862,7 @@ export function createBridgeApp(options: {
 
     // 处理文件附件
     let nonImageFiles: FileUploadResult['savedFiles'] = [];
+    let attachmentErrors: FileUploadResult['errors'] = [];
     if (message.attachments && message.attachments.length > 0 && boundProjectId !== null && options.downloadFile) {
       const projectConfig = boundProjectConfig;
       if (projectConfig?.cwd) {
@@ -733,6 +885,7 @@ export function createBridgeApp(options: {
             },
           });
 
+          attachmentErrors = uploadResult.errors;
           // 分离图片和非图片文件
           nonImageFiles = uploadResult.savedFiles.filter(f => f.attachmentType !== 'image');
           const images = uploadResult.savedFiles.filter(f => f.attachmentType === 'image');
@@ -757,7 +910,53 @@ export function createBridgeApp(options: {
       }
     }
 
-    const statusFooterItems = boundProjectId === null ? [] : buildProjectFooterItems(boundProjectId, boundProjectConfig);
+    // 如果所有附件下载都失败了，且消息文本为空，发送错误卡片并返回，不路由到模型
+    const allAttachmentsFailed = attachmentErrors.length > 0
+      && message.attachments
+      && message.attachments.length > 0
+      && message.attachments.every(a => attachmentErrors.some(e => e.fileKey === a.fileKey));
+    if (allAttachmentsFailed && message.text.trim() === '' && boundProjectId !== null) {
+      await larkAdapter.sendCard({
+        targetSessionId: message.sessionId,
+        card: buildCommandResultCard({
+          title: '附件下载失败',
+          lines: attachmentErrors.map(e => `❌ ${e.fileName}: ${e.reason}`),
+        }),
+        fallbackText: `附件下载失败: ${attachmentErrors.map(e => e.reason).join('; ')}`,
+      });
+      return;
+    }
+
+    // 如果上传成功，只有非图片文件，且消息文本为空，不路由到 agent
+    // 直接发送 fileReceivedCard 并返回
+    if (nonImageFiles.length > 0 && message.text.trim() === '' && boundProjectId !== null) {
+      const fileReceivedCard = buildFileReceivedCard({
+        files: nonImageFiles,
+        footerItems: buildProjectFooterItems(
+          boundProjectId,
+          boundProjectConfig,
+          options.projectRegistry.getActiveProvider === undefined
+            ? boundProjectConfig?.activeProvider ?? null
+            : await options.projectRegistry.getActiveProvider(boundProjectId),
+        ),
+      });
+      await larkAdapter.sendCard({
+        targetSessionId: message.sessionId,
+        card: fileReceivedCard,
+        fallbackText: `已收到 ${nonImageFiles.length} 个文件: ${nonImageFiles.map(f => f.originalName).join(', ')}`,
+      });
+      return;
+    }
+
+    const statusFooterItems = boundProjectId === null
+      ? []
+      : buildProjectFooterItems(
+          boundProjectId,
+          boundProjectConfig,
+          options.projectRegistry.getActiveProvider === undefined
+            ? boundProjectConfig?.activeProvider ?? null
+            : await options.projectRegistry.getActiveProvider(boundProjectId),
+        );
     const statusCardResult =
       boundProjectId === null
         ? null
@@ -821,7 +1020,13 @@ export function createBridgeApp(options: {
       const replyCard = buildProjectReplyCard({
         projectTitle: projectConfig?.projectInstanceId ?? projectId,
         bodyMarkdown: outboundMessage.text,
-        footerItems: buildProjectFooterItems(projectId, projectConfig),
+        footerItems: buildProjectFooterItems(
+          projectId,
+          projectConfig,
+          options.projectRegistry.getActiveProvider === undefined
+            ? projectConfig?.activeProvider ?? null
+            : await options.projectRegistry.getActiveProvider(projectId),
+        ),
       });
       await larkAdapter.sendCard({
         targetSessionId: message.sessionId,
@@ -833,7 +1038,13 @@ export function createBridgeApp(options: {
       if (nonImageFiles.length > 0) {
         const fileReceivedCard = buildFileReceivedCard({
           files: nonImageFiles,
-          footerItems: buildProjectFooterItems(projectId, projectConfig),
+          footerItems: buildProjectFooterItems(
+            projectId,
+            projectConfig,
+            options.projectRegistry.getActiveProvider === undefined
+              ? projectConfig?.activeProvider ?? null
+              : await options.projectRegistry.getActiveProvider(projectId),
+          ),
         });
         await larkAdapter.sendCard({
           targetSessionId: message.sessionId,
@@ -907,7 +1118,13 @@ export function createBridgeApp(options: {
     const unavailableCard = buildUnavailableProjectCard({
       projectId: bound,
       lines: unavailableMessage.split('\n'),
-      footerItems: buildProjectFooterItems(bound, options.projectRegistry.getProjectConfig?.(bound) ?? null),
+      footerItems: buildProjectFooterItems(
+        bound,
+        options.projectRegistry.getProjectConfig?.(bound) ?? null,
+        options.projectRegistry.getActiveProvider === undefined
+          ? options.projectRegistry.getProjectConfig?.(bound)?.activeProvider ?? null
+          : await options.projectRegistry.getActiveProvider(bound),
+      ),
     });
     if (statusCardMessageId !== null) {
       let updated = false;

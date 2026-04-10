@@ -26,6 +26,7 @@ test('discovers visible project directories from a root folder', () => {
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
     {
@@ -35,6 +36,7 @@ test('discovers visible project directories from a root folder', () => {
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);
@@ -59,6 +61,7 @@ test('merges explicit and discovered projects by projectInstanceId', () => {
           { provider: 'codex', transport: 'stdio' },
           { provider: 'cc', transport: 'stdio' },
           { provider: 'qwen', transport: 'stdio' },
+          { provider: 'gemini', transport: 'stdio' },
         ],
       },
       {
@@ -68,6 +71,7 @@ test('merges explicit and discovered projects by projectInstanceId', () => {
           { provider: 'codex', transport: 'stdio' },
           { provider: 'cc', transport: 'stdio' },
           { provider: 'qwen', transport: 'stdio' },
+          { provider: 'gemini', transport: 'stdio' },
         ],
       },
     ],
@@ -86,6 +90,7 @@ test('merges explicit and discovered projects by projectInstanceId', () => {
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);
@@ -111,6 +116,7 @@ test('loads merged projects from file and root discovery', () => {
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);

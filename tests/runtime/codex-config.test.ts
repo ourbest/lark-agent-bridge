@@ -27,6 +27,7 @@ test('defaults providers when they are omitted or empty', () => {
       { provider: 'codex', transport: 'stdio' },
       { provider: 'cc', transport: 'stdio' },
       { provider: 'qwen', transport: 'stdio' },
+      { provider: 'gemini', transport: 'stdio' },
     ],
   });
 
@@ -37,6 +38,7 @@ test('defaults providers when they are omitted or empty', () => {
       { provider: 'codex', transport: 'stdio' },
       { provider: 'cc', transport: 'stdio' },
       { provider: 'qwen', transport: 'stdio' },
+      { provider: 'gemini', transport: 'stdio' },
     ],
   });
 });
@@ -58,6 +60,21 @@ test('preserves explicit provider order when normalizing project configs', () =>
         { provider: 'qwen', transport: 'websocket', port: 8081 },
         { provider: 'codex', transport: 'stdio' },
       ],
+    },
+  );
+});
+
+test('accepts gemini as an explicit provider name', () => {
+  assert.deepEqual(
+    normalizeProjectConfig({
+      projectInstanceId: 'project-a',
+      cwd: '/repo/a',
+      providers: [{ provider: 'gemini', transport: 'stdio' }],
+    }),
+    {
+      projectInstanceId: 'project-a',
+      cwd: '/repo/a',
+      providers: [{ provider: 'gemini', transport: 'stdio' }],
     },
   );
 });
@@ -226,6 +243,7 @@ test('keeps valid projects from a mixed projects file and skips malformed entrie
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);
@@ -269,6 +287,7 @@ test('loads stdio project configs from projects file shape', () => {
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);
@@ -293,6 +312,7 @@ test('writes projects file snapshots in the same shape they are read from', () =
         { provider: 'codex', transport: 'stdio' },
         { provider: 'cc', transport: 'stdio' },
         { provider: 'qwen', transport: 'stdio' },
+        { provider: 'gemini', transport: 'stdio' },
       ],
     },
   ]);
@@ -313,6 +333,7 @@ test('writes projects file snapshots in the same shape they are read from', () =
             { provider: 'codex', transport: 'stdio' },
             { provider: 'cc', transport: 'stdio' },
             { provider: 'qwen', transport: 'stdio' },
+            { provider: 'gemini', transport: 'stdio' },
           ],
         },
       ],
@@ -346,6 +367,7 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
                 { provider: 'codex', transport: 'stdio' },
                 { provider: 'cc', transport: 'stdio' },
                 { provider: 'qwen', transport: 'stdio' },
+                { provider: 'gemini', transport: 'stdio' },
               ],
             },
           ],
@@ -372,6 +394,7 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
           { provider: 'codex', transport: 'stdio' },
           { provider: 'cc', transport: 'stdio' },
           { provider: 'qwen', transport: 'stdio' },
+          { provider: 'gemini', transport: 'stdio' },
         ],
       },
     ]);
@@ -399,6 +422,7 @@ test('preserves the original cwd text when rewriting loaded projects', () => {
               { provider: 'codex', transport: 'stdio' },
               { provider: 'cc', transport: 'stdio' },
               { provider: 'qwen', transport: 'stdio' },
+              { provider: 'gemini', transport: 'stdio' },
             ],
           },
         ],
@@ -449,11 +473,12 @@ test('keeps the last valid projects snapshot when reload encounters invalid json
       transport: 'websocket' as const,
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex' as const,
-      providers: [
-        { provider: 'codex', transport: 'stdio' },
-        { provider: 'cc', transport: 'stdio' },
-        { provider: 'qwen', transport: 'stdio' },
-      ],
+            providers: [
+              { provider: 'codex', transport: 'stdio' },
+              { provider: 'cc', transport: 'stdio' },
+              { provider: 'qwen', transport: 'stdio' },
+              { provider: 'gemini', transport: 'stdio' },
+            ],
     },
   ];
 

@@ -27,7 +27,7 @@ export class CodexProjectRegistry {
           clientInfo: {
             name: 'lark-agent-bridge',
             title: 'Codex Bridge',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           getModel: () => project.model,
           serviceName: project.serviceName,

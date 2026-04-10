@@ -10,14 +10,16 @@ import {
   resolveProjectsRootPath,
   resolveStoragePath,
 } from './runtime/bootstrap.ts';
-import { resolveCodexRuntimeConfigs, type ProjectConfigEntry, writeProjectsFile } from './runtime/codex-config.ts';
+import { resolveCodexRuntimeConfigs, type ProjectConfigEntry, writeProjectsFile, loadProjectsFromFile } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
 import { ClaudeCodeClient } from './adapters/claude-code/index.ts';
+import { GeminiCliClient } from './adapters/gemini-cli/index.ts';
 import { QwenCodeClient } from './adapters/qwen-code/index.ts';
 import { OpencodeClient } from './adapters/opencode/index.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
 import { createProjectRegistry } from './runtime/project-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
+import { createProjectManagementService } from './runtime/project-management-service.ts';
 import { loadProjectConfigs } from './runtime/project-discovery.ts';
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
 import { formatCodexCommandResult } from './runtime/codex-command-formatting.ts';
@@ -93,6 +95,9 @@ export async function patchFeishuMessageCard(
   await client.request({
     method: 'PATCH',
     url: `/open-apis/im/v1/messages/${input.messageId}`,
+    params: {
+      msg_type: 'interactive',
+    },
     data: {
       content: input.content,
     },
@@ -243,6 +248,7 @@ export async function run(): Promise<void> {
   const bridgeStore = new JsonBindingStore(storagePath);
   let projectRegistryImpl: ReturnType<typeof createProjectRegistry> | null = null;
   let projectConfigWatcher: ReturnType<typeof createProjectConfigWatcher> | null = null;
+  let projectManagementService: ReturnType<typeof createProjectManagementService> | null = null;
   let reloadProjectsHandler: (() => Promise<string[]>) | null = null;
   let projectConfigEntries: ProjectConfigEntry[] = loadProjectConfigs({
     projectsFilePath,
@@ -392,6 +398,18 @@ export async function run(): Promise<void> {
 
       return await reloadProjectsHandler();
     },
+    addLocalProject: async (input) => {
+      if (projectManagementService === null) {
+        throw new Error('project management service is not initialized');
+      }
+      return await projectManagementService.addLocalProject(input);
+    },
+    addRemoteProject: async (input) => {
+      if (projectManagementService === null) {
+        throw new Error('project management service is not initialized');
+      }
+      return await projectManagementService.addRemoteProject(input);
+    },
     executeStructuredCodexCommand: async (input) => {
       if (projectRegistryImpl === null) {
         return ['[lark-agent-bridge] codex command support is not configured'];
@@ -446,7 +464,7 @@ export async function run(): Promise<void> {
       clientInfo: {
         name: 'lark-agent-bridge',
         title: 'Codex Bridge',
-        version: '0.1.0',
+        version: '0.2.0-dev',
       },
       getModel: () => project.model,
       serviceName: project.serviceName,
@@ -522,6 +540,7 @@ export async function run(): Promise<void> {
   }
 
   projectRegistryImpl = createProjectRegistry({
+    bridgeStateStore: bridgeStore,
     getProjectConfig: (projectInstanceId: string) => {
       const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
       if (!entry) return null;
@@ -565,11 +584,26 @@ export async function run(): Promise<void> {
           pathToQwenExecutable: config.qwenExecutable ?? (command !== 'codex' ? command : undefined),
         });
       }
+      if (config.adapterType === 'gemini-cli') {
+        const geminiCommand =
+          typeof config.command === 'string' && config.command.trim() !== '' && config.command.trim() !== 'codex'
+            ? config.command.trim()
+            : 'gemini';
+        const geminiArgs =
+          Array.isArray(config.args) && !(config.args.length === 1 && config.args[0] === 'app-server')
+            ? config.args
+            : [];
+        return new GeminiCliClient({
+          command: geminiCommand,
+          args: geminiArgs,
+          cwd: config.cwd,
+        });
+      }
       return new CodexAppServerClient({
         command,
         args,
         cwd: config.cwd,
-        clientInfo: { name: 'lark-agent-bridge', title: 'Codex Bridge', version: '0.1.0' },
+        clientInfo: { name: 'lark-agent-bridge', title: 'Codex Bridge', version: '0.2.0-dev' },
         getModel: () => config.model ?? projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId)?.model,
         serviceName,
         transport,
@@ -644,11 +678,15 @@ export async function run(): Promise<void> {
           source: 'notification',
         });
 
-        await app.larkAdapter.sendCard({
+        const sent = await app.larkAdapter.sendCard({
           targetSessionId: sessionId,
           card: announcement.card,
           fallbackText: announcement.lines.join('\n'),
         });
+
+        if (sent?.messageId !== undefined && sent.messageId !== '') {
+          await approvalService.attachCardMessage(request.id, sent.messageId);
+        }
       }
     },
     onProgress: async ({ projectInstanceId, sessionId, textDelta, summary }) => {
@@ -706,6 +744,14 @@ export async function run(): Promise<void> {
     const projects = await projectConfigWatcher.reload();
     return [`[lark-agent-bridge] reloaded projects: ${projects.length}`];
   };
+
+  projectManagementService = createProjectManagementService({
+    configWatcher: projectConfigWatcher,
+    projectsFilePath,
+    getExplicitProjects: () => {
+      return loadProjectsFromFile(projectsFilePath, { homeDir: process.env.HOME }) ?? [];
+    },
+  });
 
   projectConfigEntries = await projectConfigWatcher.reload();
   await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
@@ -838,9 +884,8 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
         messageId: response.data?.message_id,
       };
     },
-    updateMessageFn: async ({ sessionId, messageId, msgType, content }) => {
+    updateMessageFn: async ({ sessionId, messageId, content }) => {
       void sessionId;
-      void msgType;
       await patchFeishuMessageCard(restClient, {
         messageId,
         content: String(content),

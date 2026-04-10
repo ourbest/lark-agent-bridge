@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const SERIALIZED_CWD = Symbol('serializedCwd');
 
-export type ProjectProviderName = 'codex' | 'cc' | 'qwen';
+export type ProjectProviderName = 'codex' | 'cc' | 'qwen' | 'gemini';
 
 export interface ProjectProviderConfig {
   provider: ProjectProviderName;
@@ -29,7 +29,7 @@ export interface ProjectConfigInput {
   providers?: unknown;
 }
 
-export const DEFAULT_PROJECT_PROVIDER_NAMES = ['codex', 'cc', 'qwen'] as const;
+export const DEFAULT_PROJECT_PROVIDER_NAMES = ['codex', 'cc', 'qwen', 'gemini'] as const;
 
 export function resolvePathLikeInput(value: string | undefined, homeDir: string | undefined = process.env.HOME): string | undefined {
   const trimmed = value?.trim();
@@ -54,8 +54,8 @@ export function resolvePathLikeInput(value: string | undefined, homeDir: string 
 }
 
 function normalizeProviderName(value: unknown): ProjectProviderName {
-  if (value !== 'codex' && value !== 'cc' && value !== 'qwen') {
-    throw new Error('provider must be one of codex, cc, or qwen');
+  if (value !== 'codex' && value !== 'cc' && value !== 'qwen' && value !== 'gemini') {
+    throw new Error('provider must be one of codex, cc, qwen, or gemini');
   }
 
   return value;

@@ -14,7 +14,7 @@ export interface ProjectConfig {
   serviceName: string;
   transport: 'stdio' | 'websocket';
   websocketUrl?: string;
-  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode';
+  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode' | 'gemini-cli';
   qwenExecutable?: string;
   providers?: ProviderDescriptor[];
   activeProvider?: ProviderName;

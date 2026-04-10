@@ -19,7 +19,7 @@ test('surfaces app-server approval requests and can respond to them', async () =
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -107,7 +107,7 @@ test('surfaces app-server approval requests and can respond to them', async () =
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,

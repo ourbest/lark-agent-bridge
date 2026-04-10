@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildApprovalCard,
+  buildApprovalResultCard,
   buildBridgeStatusCard,
   buildProjectReplyCard,
   buildStartupNotificationCard,
@@ -34,7 +35,11 @@ test('keeps fenced code blocks intact while rewriting inline code spans', () => 
     buildApprovalCard({
       title: 'Approval required',
       bodyMarkdown: '```bash\nprintf "`keep`"\n```\nOutside `git status`.',
-      footerItems: [{ label: 'Chat', value: 'session-a' }],
+      footerItems: [
+        { label: '授权ID', value: 'session-a' },
+        { label: '注', value: '自动授权有效期 1 小时' },
+      ],
+      requestId: 'req-1',
     }).content,
   ) as {
     body?: { elements?: Array<{ tag?: string; content?: string }> };
@@ -44,15 +49,18 @@ test('keeps fenced code blocks intact while rewriting inline code spans', () => 
   assert.match(approvalBody, /```bash/);
   assert.match(approvalBody, /`keep`/);
   assert.match(approvalBody, /Outside `git status`\./);
-  assert.ok(approvalCard.body?.elements?.some((element) => element.tag === 'markdown' && element.content?.includes('Chat:')));
+  assert.ok(approvalCard.body?.elements?.some((element) => element.tag === 'button'));
+  assert.ok(approvalCard.body?.elements?.some((element) => element.tag === 'markdown' && element.content?.includes('授权ID: session-a')));
+  assert.ok(approvalCard.body?.elements?.some((element) => element.tag === 'markdown' && element.content?.includes('注: 自动授权有效期 1 小时')));
 });
 
-test('renders approval cards as informational content without buttons', () => {
+test('renders approval result cards without buttons', () => {
   const card = JSON.parse(
-    buildApprovalCard({
-      title: 'Approval required',
-      bodyMarkdown: 'Need approval',
-      footerItems: [{ label: 'Chat', value: 'session-a' }],
+    buildApprovalResultCard({
+      title: 'Approval resolved',
+      subtitle: 'command execution | project-a',
+      status: 'approved',
+      footerItems: [{ label: '授权ID', value: '42' }],
     }).content,
   ) as {
     schema?: string;
@@ -63,7 +71,32 @@ test('renders approval cards as informational content without buttons', () => {
   assert.equal(card.schema, '2.0');
   assert.equal(card.config?.wide_screen_mode, true);
   assert.equal(card.body?.elements?.some((element) => element.tag === 'action' || element.tag === 'button'), false);
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('已授权')));
+});
+
+test('renders approval cards with buttons and compact footer content', () => {
+  const card = JSON.parse(
+    buildApprovalCard({
+      title: 'Approval required',
+      bodyMarkdown: 'Need approval',
+      footerItems: [
+        { label: '授权ID', value: '42' },
+        { label: '注', value: '自动授权有效期 1 小时' },
+      ],
+      requestId: 42,
+    }).content,
+  ) as {
+    schema?: string;
+    config?: { wide_screen_mode?: boolean };
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+
+  assert.equal(card.schema, '2.0');
+  assert.equal(card.config?.wide_screen_mode, true);
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'button'));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('Need approval')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('授权ID: 42')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('注: 自动授权有效期 1 小时')));
 });
 
 test('builds startup notification as an interactive markdown card', () => {

@@ -14,7 +14,7 @@ test('initializes codex app-server, starts a thread, and collects streamed agent
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -74,7 +74,7 @@ test('initializes codex app-server, starts a thread, and collects streamed agent
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -121,7 +121,7 @@ test('reads the current model from a dynamic getter for each turn', async () => 
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     getModel: () => currentModel,
     spawnAppServer() {
@@ -186,7 +186,7 @@ test('reads the current model from a dynamic getter for each turn', async () => 
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -242,7 +242,7 @@ test('resolves codex replies from completed agent items when no delta stream arr
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -307,7 +307,7 @@ test('executes a structured codex command without starting a turn', async () => 
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -354,7 +354,7 @@ test('executes a structured codex command without starting a turn', async () => 
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -384,7 +384,7 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -430,7 +430,7 @@ test('starts a fresh thread with binding-friendly defaults', async () => {
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -468,7 +468,7 @@ test('starts a fresh thread when forced even if one already exists', async () =>
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -520,7 +520,7 @@ test('starts a fresh thread when forced even if one already exists', async () =>
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -569,7 +569,7 @@ test('resumes an existing thread before generating the next reply', async () => 
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       return {
@@ -627,7 +627,7 @@ test('resumes an existing thread before generating the next reply', async () => 
           clientInfo: {
             name: 'bridge-test',
             title: 'Bridge Test',
-            version: '0.1.0',
+            version: '0.2.0-dev',
           },
           capabilities: {
             experimentalApi: true,
@@ -671,7 +671,7 @@ test('rejects when the app-server process fails to spawn', async () => {
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     spawnAppServer() {
       queueMicrotask(() => {

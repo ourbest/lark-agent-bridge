@@ -20,7 +20,7 @@ export interface ProviderManagerProjectConfig {
   serviceName?: string;
   transport?: 'stdio' | 'websocket';
   websocketUrl?: string;
-  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode';
+  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode' | 'gemini-cli';
   qwenExecutable?: string;
   opencodeHostname?: string;
   opencodePort?: number;
@@ -46,7 +46,7 @@ export interface ProviderManagerOptions {
   serviceName?: string;
   transport?: 'stdio' | 'websocket';
   websocketUrl?: string;
-  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode';
+  adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode' | 'gemini-cli';
   qwenExecutable?: string;
   opencodeHostname?: string;
   opencodePort?: number;

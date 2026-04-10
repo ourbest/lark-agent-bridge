@@ -2,6 +2,7 @@ import type { LarkEventPayload, LarkTransport } from './adapter.ts';
 import type { InboundAttachment } from '../../core/events/message.ts';
 import { buildFeishuPostMessage, isMarkdown } from './md-to-feishu.ts';
 import {
+  extractCardActionDetails,
   extractCardActionCommand,
   extractCardActionMessageId,
   extractCardActionSenderId,
@@ -122,8 +123,11 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
         let attachments: InboundAttachment[] | undefined;
         const msgType = msg.message_type ?? '';
 
+        console.log(`[feishu] message received: msgType=${msgType}, chatId=${msg.chat_id}, messageId=${msg.message_id}, contentLength=${msg.content?.length ?? 0}`);
+
         try {
           const parsed = JSON.parse(msg.content);
+          console.log(`[feishu] parsed content: ${JSON.stringify(parsed)}`);
 
           if (msgType === 'file') {
             // 文件消息
@@ -137,10 +141,14 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
                 fileSize: parsed.file_size ?? 0,
                 attachmentType: 'file',
               }];
+              console.log(`[feishu] file message: fileKey=${fileKey}, fileName=${fileName}`);
+            } else {
+              console.warn(`[feishu] file message missing file_key: ${JSON.stringify(parsed)}`);
             }
           } else if (msgType === 'image') {
             // 图片消息
             const imageKey = parsed.image_key;
+            console.log(`[feishu] image message: imageKey=${imageKey ?? 'MISSING'}, parsed=${JSON.stringify(parsed)}`);
             if (imageKey) {
               attachments = [{
                 fileKey: imageKey,
@@ -149,42 +157,104 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
                 fileSize: 0,
                 attachmentType: 'image',
               }];
+              console.log(`[feishu] image attachment prepared: key=${imageKey}`);
+            } else {
+              console.warn(`[feishu] image message missing image_key: ${JSON.stringify(parsed)}`);
             }
+          } else if (msgType === 'post') {
+            // 富文本消息：解析 content 数组中的文本和图片
+            const parts: string[] = [];
+            const imgs: InboundAttachment[] = [];
+            const content = parsed.content;
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (Array.isArray(block)) {
+                  for (const item of block) {
+                    if (item.tag === 'text' && typeof item.text === 'string') {
+                      parts.push(item.text);
+                    } else if (item.tag === 'img' && item.image_key) {
+                      imgs.push({
+                        fileKey: item.image_key,
+                        fileName: 'image.png',
+                        mimeType: 'image/png',
+                        fileSize: 0,
+                        attachmentType: 'image',
+                      });
+                    }
+                  }
+                }
+              }
+            }
+            text = parts.join('');
+            if (imgs.length > 0) {
+              attachments = imgs;
+            }
+            console.log(`[feishu] post message: textLength=${text.length}, imageCount=${imgs.length}`);
           } else {
             // 文本消息
             text = typeof parsed.text === 'string' ? parsed.text : '';
+            console.log(`[feishu] text message: textLength=${text.length}`);
           }
-        } catch {
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          console.error(`[feishu] failed to parse message content: ${errMsg}, content="${msg.content}"`);
           text = '';
+        }
+
+        // 检查消息是否为空
+        if (text === '' && attachments === undefined) {
+          console.warn(`[feishu] empty message: msgType=${msgType}, chatId=${msg.chat_id}, messageId=${msg.message_id}`);
+        } else if (attachments !== undefined) {
+          console.log(`[feishu] message has ${attachments.length} attachment(s), text="${text}"`);
         }
 
         const event: LarkEventPayload = {
           sessionId: msg.chat_id,
           messageId: msg.message_id,
           text,
-          attachments,
           senderId: data.sender?.sender_id?.open_id ?? '',
           timestamp: msg.create_time ?? '',
         };
 
+        if (attachments !== undefined) {
+          event.attachments = attachments;
+        }
+
+        console.log(`[feishu] emitting event to handler: messageId=${event.messageId}, sessionId=${event.sessionId}, textLength=${event.text.length}, attachments=${event.attachments?.length ?? 0}`);
         void eventHandler?.(event);
       },
+      // 空 handler，屏蔽 SDK 的 "no handle" 警告
+      'im.chat.access_event.bot_p2p_chat_entered_v1'() {},
+
       async 'card.action.trigger'(data: unknown) {
+        console.log('[feishu] card.action.trigger received, data:', JSON.stringify(data));
+
+        const details = extractCardActionDetails(data);
         const command = extractCardActionCommand(data);
         const sessionId = extractCardActionSessionId(data);
         const messageId = extractCardActionMessageId(data) ?? 'card-action';
         const senderId = extractCardActionSenderId(data) ?? '';
 
-        if (command === null || sessionId === null) {
+        console.log('[feishu] card action parsed: details=', details, ', command=', command, ', sessionId=', sessionId);
+
+        if (sessionId === null) {
+          console.warn('[feishu] card.action.trigger: sessionId is null, ignoring event');
           return;
         }
 
         const event: LarkEventPayload = {
           sessionId,
           messageId,
-          text: command,
+          text: details !== null ? '' : command ?? '',
           senderId,
           timestamp: new Date().toISOString(),
+          cardAction:
+            details !== null && details.requestId !== null
+              ? {
+                  action: details.action,
+                  requestId: details.requestId,
+                }
+              : undefined,
         };
 
         void eventHandler?.(event);
@@ -263,9 +333,10 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
     },
     async updateCard(message) {
       if (options.updateMessageFn === undefined) {
-        return;
+        return false;
       }
 
+      let updateFailed = false;
       await new Promise<void>((resolve) => {
         enqueueMessage(message.sessionId, async () => {
           try {
@@ -275,13 +346,14 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
               msgType: 'interactive',
               content: message.card.content,
             });
-            resolve();
           } catch (error) {
             logTransportError('update interactive', message.sessionId, error);
-            resolve();
+            updateFailed = true;
           }
+          resolve();
         });
       });
+      return !updateFailed;
     },
     async sendReaction(message) {
       options.onReact?.(message);

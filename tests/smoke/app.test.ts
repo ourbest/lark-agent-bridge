@@ -9,6 +9,35 @@ import { loadConfig } from '../../src/config/env.ts';
 import type { LarkEventPayload, LarkTransport } from '../../src/adapters/lark/adapter.ts';
 import { createProjectConfigWatcher } from '../../src/runtime/project-config-watcher.ts';
 import { createProjectRegistry } from '../../src/runtime/project-registry.ts';
+import { createApprovalService } from '../../src/runtime/approval-service.ts';
+
+function cardHasButton(card: { body?: { elements?: Array<{ tag?: string; content?: string; columns?: Array<{ elements?: Array<{ tag?: string; value?: { requestId?: string } }> }> }> } }): boolean {
+  for (const element of card.body?.elements ?? []) {
+    if (element.tag === 'button') return true;
+    if (element.tag === 'column_set') {
+      for (const column of element.columns ?? []) {
+        for (const colElement of column.elements ?? []) {
+          if (colElement.tag === 'button') return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function findButtonRequestId(card: { body?: { elements?: Array<{ tag?: string; content?: string; columns?: Array<{ elements?: Array<{ tag?: string; value?: { requestId?: string } }> }> }> } }): string | undefined {
+  for (const element of card.body?.elements ?? []) {
+    if (element.tag === 'button') return element.value?.requestId;
+    if (element.tag === 'column_set') {
+      for (const column of element.columns ?? []) {
+        for (const colElement of column.elements ?? []) {
+          if (colElement.tag === 'button') return colElement.value?.requestId;
+        }
+      }
+    }
+  }
+  return undefined;
+}
 
 test('boots the bridge runtime and forwards a routed reply back to lark', async () => {
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
@@ -48,6 +77,19 @@ test('boots the bridge runtime and forwards a routed reply back to lark', async 
           removed: false,
           sessionCount: 0,
         };
+      },
+      async getActiveProvider(projectInstanceId) {
+        return projectInstanceId === 'project-a' ? 'codex' : null;
+      },
+      getProjectConfig(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? {
+              projectInstanceId,
+              cwd: '/repo/project-a',
+              transport: 'stdio',
+              activeProvider: 'codex',
+            }
+          : null;
       },
     },
   });
@@ -89,14 +131,297 @@ test('boots the bridge runtime and forwards a routed reply back to lark', async 
   };
   assert.equal(card.header?.title?.content, 'project-a');
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('reply:hello')));
-  const footer = card.body?.elements?.find((element) => element.tag === 'markdown' && typeof element.content === 'string' && element.content.includes('PATH'));
+  const footer = card.body?.elements?.find((element) => element.tag === 'markdown' && typeof element.content === 'string' && element.content.includes('/repo/project-a'));
   assert.ok(footer);
-  assert.match(JSON.stringify(footer), /PATH/);
-  assert.match(JSON.stringify(footer), /Transport/);
+  assert.match(JSON.stringify(footer), /project-a \| \/repo\/project-a \| codex \| stdio/);
+  assert.ok(!JSON.stringify(footer).includes('PATH:'));
+  assert.ok(!JSON.stringify(footer).includes('Provider:'));
+  assert.ok(!JSON.stringify(footer).includes('Transport:'));
   assert.deepEqual(sentMessages, []);
 
   await app.stop();
   assert.equal(app.ready, false);
+});
+
+test('updates the original approval card in place when a card action is triggered', async () => {
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  let cardActionHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+  const approvalService = createApprovalService();
+
+  const transport = {
+    onEvent() {},
+    onCardAction(handler) {
+      cardActionHandler = handler;
+    },
+    async sendMessage() {
+      return undefined;
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+      return { messageId: `card-${sentCards.length}` };
+    },
+    async updateCard(message) {
+      updatedCards.push(message);
+    },
+    async sendReaction() {},
+  } as LarkTransport;
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    approvalService,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+      async getActiveProvider(projectInstanceId) {
+        return projectInstanceId === 'project-a' ? 'codex' : null;
+      },
+      getProjectConfig(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? {
+              projectInstanceId,
+              cwd: '/repo/project-a',
+              transport: 'stdio',
+              activeProvider: 'codex',
+            }
+          : null;
+      },
+    },
+  });
+
+  await app.bindingService.bindProjectToSession('project-a', 'session-a');
+  await app.start();
+  assert.ok(cardActionHandler);
+
+  await approvalService.registerRequest({
+    requestId: 'approval-1',
+    projectInstanceId: 'project-a',
+    sessionId: 'session-a',
+    threadId: 'thr_123',
+    turnId: 'turn_1',
+    itemId: 'item-1',
+    kind: 'commandExecution',
+    command: 'rm -rf /tmp/example',
+    respond: async () => {},
+  });
+  await approvalService.attachCardMessage('approval-1', 'card-approval-1');
+
+  await cardActionHandler!({
+    sessionId: 'session-a',
+    messageId: 'card-approval-1',
+    text: '',
+    senderId: 'user-a',
+    timestamp: '2026-03-29T00:00:00.000Z',
+    cardAction: {
+      action: 'approve',
+      requestId: 'approval-1',
+    },
+  });
+
+  assert.equal(updatedCards.length, 1);
+  assert.equal(updatedCards[0]?.messageId, 'card-approval-1');
+  const resultCard = JSON.parse(updatedCards[0]?.card.content ?? '{}') as {
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(resultCard.body?.elements?.some((element) => element.tag === 'action'), false);
+  assert.ok(resultCard.body?.elements?.some((element) => String(element.content).includes('已授权')));
+  assert.ok(resultCard.body?.elements?.some((element) => String(element.content).includes('授权ID: approval-1')));
+
+  await app.stop();
+});
+
+test('creates a test approval card for //approve-test and updates it when buttons are clicked', async () => {
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+  let cardActionHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+  const approvalService = createApprovalService();
+
+  const transport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    onCardAction(handler) {
+      cardActionHandler = handler;
+    },
+    async sendMessage() {
+      return undefined;
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+      return { messageId: `card-${sentCards.length}` };
+    },
+    async updateCard(message) {
+      updatedCards.push(message);
+    },
+    async sendReaction() {},
+  } as LarkTransport;
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    approvalService,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+      async getActiveProvider(projectInstanceId) {
+        return projectInstanceId === 'project-a' ? 'codex' : null;
+      },
+      getProjectConfig(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? {
+              projectInstanceId,
+              cwd: '/repo/project-a',
+              transport: 'stdio',
+              activeProvider: 'codex',
+            }
+          : null;
+      },
+    },
+  });
+
+  await app.bindingService.bindProjectToSession('project-a', 'session-a');
+  await app.start();
+  assert.ok(eventHandler);
+  assert.ok(cardActionHandler);
+
+  await eventHandler!({
+    sessionId: 'session-a',
+    messageId: 'message-approve-test',
+    text: '//approve-test',
+    senderId: 'user-a',
+    timestamp: '2026-03-29T00:00:00.000Z',
+  });
+
+  assert.equal(sentCards.length, 1);
+  const approvalCard = JSON.parse(sentCards[0].card.content) as {
+    body?: {
+      elements?: Array<
+        | { tag?: string; content?: string }
+        | { tag?: 'action'; actions?: Array<{ value?: { requestId?: string } }> }
+      >;
+    };
+  };
+  assert.ok(cardHasButton(approvalCard));
+  const requestId = findButtonRequestId(approvalCard);
+  assert.ok(requestId?.startsWith('approve-test-'));
+  assert.ok(approvalCard.body?.elements?.some((element) => String(element.content).includes('授权ID: approve-test-')));
+  assert.ok(approvalCard.body?.elements?.some((element) => String(element.content).includes('自动授权有效期 1 小时')));
+
+  await cardActionHandler!({
+    sessionId: 'session-a',
+    messageId: 'card-1',
+    text: '',
+    senderId: 'user-a',
+    timestamp: '2026-03-29T00:00:00.000Z',
+    cardAction: {
+      action: 'approve',
+      requestId: requestId ?? 'approve-test-missing',
+    },
+  });
+
+  assert.equal(updatedCards.length, 1);
+  assert.equal(updatedCards[0]?.messageId, 'card-1');
+  const resultCard = JSON.parse(updatedCards[0]?.card.content ?? '{}') as {
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  assert.equal(resultCard.body?.elements?.some((element) => element.tag === 'action'), false);
+  assert.ok(resultCard.body?.elements?.some((element) => String(element.content).includes('已授权')));
+  assert.ok(resultCard.body?.elements?.some((element) => String(element.content).includes('授权ID: approve-test-')));
+
+  await app.stop();
+});
+
+test('uses the live provider list for //providers and shows active provider as running', async () => {
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+
+  const transport: LarkTransport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    async sendMessage() {},
+    async sendCard(message) {
+      sentCards.push(message);
+    },
+    async sendReaction() {},
+  };
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+      getProjectConfig(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? {
+              projectInstanceId,
+              cwd: '/repo/project-a',
+              transport: 'stdio',
+              command: 'codex',
+              args: ['app-server'],
+            }
+          : null;
+      },
+      async getProjectProviders(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? [
+              { provider: 'codex', transport: 'stdio', active: true, started: true },
+              { provider: 'cc', transport: 'stdio', active: false, started: false },
+              { provider: 'qwen', transport: 'stdio', active: false, started: false },
+              { provider: 'gemini', transport: 'stdio', active: false, started: false },
+            ]
+          : [];
+      },
+      async getActiveProvider(projectInstanceId) {
+        return projectInstanceId === 'project-a' ? 'codex' : null;
+      },
+    },
+  });
+
+  await app.bindingService.bindProjectToSession('project-a', 'session-a');
+  await app.start();
+  assert.ok(eventHandler);
+
+  await eventHandler!({
+    sessionId: 'session-a',
+    messageId: 'message-providers',
+    text: '//providers',
+    senderId: 'user-a',
+    timestamp: '2026-03-29T00:00:00.000Z',
+  });
+
+  assert.equal(sentCards.length, 1);
+  const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
+    body?: { elements?: Array<{ tag?: string; content?: string }> };
+  };
+  const footer = card.body?.elements?.find((element) => element.tag === 'markdown' && typeof element.content === 'string' && element.content.includes('codex'));
+  assert.ok(footer);
+  assert.match(JSON.stringify(footer), /codex \| transport=stdio \| active \| running/);
+  await app.stop();
 });
 
 test('updates the same status card for waiting approval and reconnecting while a reply is in flight', async () => {
@@ -1087,6 +1412,7 @@ test('renders //help as an interactive card for easier reading', async () => {
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//provider <name>')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//new')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//approve-auto <minutes>')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//approve-test')));
 
   await app.stop();
 });

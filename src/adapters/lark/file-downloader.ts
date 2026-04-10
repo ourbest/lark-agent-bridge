@@ -21,23 +21,29 @@ export interface DownloadedFile {
 /**
  * 从飞书下载消息中的文件资源
  *
- * 使用 `im.v1.messageResource.get` API，支持获取消息中的图片、文件、音频等资源。
+ * 所有资源（图片/文件）统一使用 `im.v1.messageResource.get` API。
+ * 注意：`im.v1.image.get` 只能下载机器人自己上传的图片，不能下载用户发送的图片。
+ *
  * SDK 返回的是可读流（ReadableStream），需要消费流获取二进制内容。
  */
 export async function downloadFeishuFile(
   client: Client,
   messageId: string,
   fileKey: string,
+  type: 'image' | 'file' = 'file',
 ): Promise<DownloadedFile> {
+  const urlPath = `/open-apis/im/v1/messages/${messageId}/resources/${fileKey}?type=${type}`;
+
+  console.log(`[file-downloader] downloading ${type}: messageId=${messageId}, fileKey=${fileKey}, url=${urlPath}`);
+
   try {
-    // 使用 SDK 的 im.v1.messageResource.get 方法
-    // 文档: https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message-resource/get
+    // 统一使用 messageResource.get，type 参数指明资源类型（image 或 file）
     const result = await client.im.v1.messageResource.get({
-      path: {
-        message_id: messageId,
-        file_key: fileKey,
-      },
+      path: { message_id: messageId, file_key: fileKey },
+      params: { type },
     });
+
+    console.log(`[file-downloader] API call succeeded, reading stream...`);
 
     const stream = result.getReadableStream() as Readable;
     const headers = result.headers as Record<string, string | undefined> | undefined;
@@ -80,6 +86,7 @@ export async function downloadFeishuFile(
     );
 
     const downloadedBuffer = await Promise.race([bufferPromise, timeoutPromise]);
+    console.log(`[file-downloader] stream read complete: size=${downloadedBuffer.length} bytes`);
 
     // 二次检查实际下载的缓冲区大小
     if (downloadedBuffer.length > MAX_FILE_SIZE) {
@@ -94,7 +101,7 @@ export async function downloadFeishuFile(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to download Feishu file (messageId=${messageId}, fileKey=${fileKey}): ${message}`);
+    throw new Error(`Failed to download Feishu ${type} (url=${urlPath}): ${message}`);
   }
 }
 
@@ -103,7 +110,6 @@ export async function downloadFeishuFile(
  */
 export function createFileDownloadHandler(client: Client) {
   return async (opts: { messageId: string; fileKey: string; type: 'image' | 'file' }) => {
-    void opts.type; // messageResource.get 统一处理所有资源类型
-    return await downloadFeishuFile(client, opts.messageId, opts.fileKey);
+    return await downloadFeishuFile(client, opts.messageId, opts.fileKey, opts.type);
   };
 }

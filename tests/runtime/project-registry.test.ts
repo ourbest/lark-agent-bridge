@@ -61,6 +61,7 @@ test('exposes default providers and the initial active provider', async () => {
     { provider: 'codex', transport: 'stdio', active: true, started: false },
     { provider: 'cc', transport: 'stdio', active: false, started: false },
     { provider: 'qwen', transport: 'stdio', active: false, started: false },
+    { provider: 'gemini', transport: 'stdio', active: false, started: false },
   ]);
   assert.equal(await registry.getActiveProvider('project-a'), 'codex');
 });

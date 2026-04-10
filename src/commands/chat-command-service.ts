@@ -60,6 +60,8 @@ export interface ChatCommandServiceDependencies {
   executeCodexCommand?: (input: CodexCommandExecutionInput) => Promise<string[]>;
   executeStructuredCodexCommand?: (input: StructuredCodexCommandExecutionInput) => Promise<string[]>;
   reloadProjects?: () => Promise<string[]>;
+  addLocalProject?(input: { path: string; id?: string }): Promise<{ projectInstanceId: string; cwd: string }>;
+  addRemoteProject?(input: { gitRemote: string }): Promise<{ projectInstanceId: string; cwd: string }>;
 }
 
 export interface ChatCommandService {
@@ -67,7 +69,7 @@ export interface ChatCommandService {
 }
 
 function isBridgeCommandToken(token: string): boolean {
-  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'projects' || token === 'providers' || token === 'provider';
+  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'projects' || token === 'providers' || token === 'provider' || token === 'project' || token === 'approve-test';
 }
 
 function isCodexCommandToken(token: string): boolean {
@@ -115,11 +117,14 @@ function buildHelpLines(): string[] {
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //reload projects   - reload projects.json',
+    '  //project add local <path> [id] - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
     '  //approve-auto <minutes> - auto-approve this chat for N minutes',
+    '  //approve-test      - create a test approval card for manual button checks',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -128,6 +133,26 @@ function buildHelpLines(): string[] {
     '  //thread/read <id>  - inspect a codex thread',
     '  //review            - review the current working tree',
   ];
+}
+
+function looksLikeProjectId(token: string): boolean {
+  return token.length > 0 && token.length <= 24 && /^[a-z0-9_-]*[0-9_-][a-z0-9_-]*$/.test(token);
+}
+
+function resolveLocalProjectInput(remainder: string): { path: string; id?: string } {
+  const lastSpaceIndex = remainder.lastIndexOf(' ');
+  if (lastSpaceIndex === -1) {
+    return { path: remainder };
+  }
+
+  const potentialPath = remainder.slice(0, lastSpaceIndex).trim();
+  const lastToken = remainder.slice(lastSpaceIndex + 1).trim();
+
+  if (!looksLikeProjectId(lastToken)) {
+    return { path: remainder };
+  }
+
+  return { path: potentialPath, id: lastToken };
 }
 
 async function buildSessionStateLines(
@@ -224,7 +249,7 @@ function formatProviderSummary(provider: ProjectProviderSummary, activeProvider?
     provider.transport ? `transport=${provider.transport}` : null,
     provider.port !== undefined ? `port=${provider.port}` : null,
     provider.active === true || activeProvider === provider.provider ? 'active' : null,
-    provider.started === true ? 'started' : 'stopped',
+    provider.started === true ? 'running' : 'stopped',
   ].filter((part): part is string => part !== null);
 
   return parts.join(' | ');
@@ -242,7 +267,10 @@ async function buildProjectsLines(dependencies: ChatCommandServiceDependencies):
 
   const lines = ['[lark-agent-bridge] projects:'];
   for (const project of projects) {
-    lines.push(`  - ${project.projectInstanceId}`);
+    const providerLabel = project.activeProvider !== undefined && project.activeProvider !== null
+      ? ` | provider=${project.activeProvider}`
+      : '';
+    lines.push(`  - ${project.projectInstanceId}${providerLabel}`);
     if (project.cwd !== undefined && project.cwd !== null) {
       lines.push(`    cwd: ${project.cwd}`);
     }
@@ -311,16 +339,21 @@ async function switchActiveProviderLines(
   }
 
   const normalizedProvider = providerName.trim().toLowerCase();
-  if (normalizedProvider !== 'codex' && normalizedProvider !== 'cc' && normalizedProvider !== 'qwen') {
-    return ['Usage: //provider <codex|cc|qwen>'];
+  if (normalizedProvider !== 'codex' && normalizedProvider !== 'cc' && normalizedProvider !== 'qwen' && normalizedProvider !== 'gemini') {
+    return ['Usage: //provider <codex|cc|qwen|gemini>'];
   }
 
   if (dependencies.projectRegistry.setActiveProvider === undefined) {
     return ['[lark-agent-bridge] provider switching is not configured'];
   }
 
-  await dependencies.projectRegistry.setActiveProvider(projectId, normalizedProvider);
-  return [`[lark-agent-bridge] active provider for ${projectId} set to ${normalizedProvider}`];
+  try {
+    await dependencies.projectRegistry.setActiveProvider(projectId, normalizedProvider);
+    return [`[lark-agent-bridge] active provider for ${projectId} set to ${normalizedProvider}`];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`[lark-agent-bridge] failed to switch provider: ${message}`];
+  }
 }
 
 function buildCodexSupportNotConfiguredLines(projectId: string, method: string): string[] {
@@ -557,7 +590,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
 
           case 'provider': {
             if (parsed.args.length !== 1) {
-              return ['Usage: //provider <codex|cc|qwen>'];
+              return ['Usage: //provider <codex|cc|qwen|gemini>'];
             }
 
             return await switchActiveProviderLines(dependencies, input.sessionId, parsed.args[0]);
@@ -640,6 +673,100 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             }
 
             return await dependencies.reloadProjects();
+          }
+
+          case 'project': {
+            if (parsed.args.length === 0) {
+              return [
+                'Usage:',
+                '  //project add local <path> [id]  - add a local project',
+                '  //project add remote <git-remote> - add a project from git remote',
+              ];
+            }
+
+            const subcommand = parsed.args[0].toLowerCase();
+
+            if (subcommand === 'add') {
+              if (parsed.args.length < 2) {
+                return [
+                  'Usage:',
+                  '  //project add local <path> [id]  - add a local project',
+                  '  //project add remote <git-remote> - add a project from git remote',
+                ];
+              }
+
+              const addType = parsed.args[1].toLowerCase();
+
+              if (addType === 'local') {
+                if (parsed.args.length < 2) {
+                  return ['Usage: //project add local <path> [id]'];
+                }
+
+                if (dependencies.addLocalProject === undefined) {
+                  return ['[lark-agent-bridge] adding local projects is not configured'];
+                }
+
+                // 从原始文本中提取路径和 ID，支持带空格的路径
+                // 格式: //project add local <path> [id]
+                // 最后一个 token 是 ID（如果不包含路径分隔符），其余的是路径
+                const rawText = input.text.trim();
+                const prefix = '//project add local ';
+                if (!rawText.toLowerCase().startsWith(prefix)) {
+                  return ['Usage: //project add local <path> [id]'];
+                }
+
+                const remainder = rawText.slice(prefix.length).trim();
+                if (remainder === '') {
+                  return ['Usage: //project add local <path> [id]'];
+                }
+
+                const { path: projectPath, id: projectId } = resolveLocalProjectInput(remainder);
+
+                try {
+                  const result = await dependencies.addLocalProject({ path: projectPath.trim(), id: projectId?.trim() });
+                  return [
+                    `[lark-agent-bridge] added local project "${result.projectInstanceId}"`,
+                    `  cwd: ${result.cwd}`,
+                  ];
+                } catch (error) {
+                  return [`[lark-agent-bridge] failed to add local project: ${error instanceof Error ? error.message : String(error)}`];
+                }
+              }
+
+              if (addType === 'remote') {
+                if (parsed.args.length < 3) {
+                  return ['Usage: //project add remote <git-remote>'];
+                }
+
+                if (dependencies.addRemoteProject === undefined) {
+                  return ['[lark-agent-bridge] adding remote projects is not configured'];
+                }
+
+                const gitRemote = parsed.args[2];
+
+                try {
+                  const result = await dependencies.addRemoteProject({ gitRemote });
+                  return [
+                    `[lark-agent-bridge] added remote project "${result.projectInstanceId}"`,
+                    `  cwd: ${result.cwd}`,
+                  ];
+                } catch (error) {
+                  return [`[lark-agent-bridge] failed to add remote project: ${error instanceof Error ? error.message : String(error)}`];
+                }
+              }
+
+              return [
+                'Usage:',
+                '  //project add local <path> [id]  - add a local project',
+                '  //project add remote <git-remote> - add a project from git remote',
+              ];
+            }
+
+            return [
+              'Usage:',
+              '  //project add local <path> [id]  - add a local project',
+              '  //project add remote <git-remote> - add a project from git remote',
+            ];
           }
 
           case 'help':

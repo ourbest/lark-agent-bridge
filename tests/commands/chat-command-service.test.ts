@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { BindingService } from '../../src/core/binding/binding-service.ts';
 import { createChatCommandService } from '../../src/commands/chat-command-service.ts';
@@ -103,6 +106,7 @@ test('shows approve-auto in help output', async () => {
   });
 
   assert.ok(lines?.some((line) => line.includes('//approve-auto <minutes>')));
+  assert.ok(lines?.some((line) => line.includes('//approve-test')));
 });
 
 test('resumes a thread by explicit id for the bound chat', async () => {
@@ -486,11 +490,14 @@ test('rejects bare codex commands without the // prefix', async () => {
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //reload projects   - reload projects.json',
+    '  //project add local <path> [id] - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
     '  //approve-auto <minutes> - auto-approve this chat for N minutes',
+    '  //approve-test      - create a test approval card for manual button checks',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -567,7 +574,7 @@ test('lists projects with //projects', async () => {
 
   assert.deepEqual(lines, [
     '[lark-agent-bridge] projects:',
-    '  - project-a',
+    '  - project-a | provider=codex',
     '    cwd: /repo/project-a',
     '    source: config',
     '    active provider: codex',
@@ -575,7 +582,7 @@ test('lists projects with //projects', async () => {
     '    configured: yes',
     '    active: yes',
     '    removed: no',
-    '  - project-b',
+    '  - project-b | provider=qwen',
     '    cwd: /repo/project-b',
     '    source: root',
     '    active provider: qwen',
@@ -649,9 +656,9 @@ test('lists and switches providers for the bound project', async () => {
 
   assert.deepEqual(providersLines, [
     '[lark-agent-bridge] providers for project-a:',
-    '  - codex | transport=stdio | active | started',
+    '  - codex | transport=stdio | active | running',
     '  - cc | transport=stdio | stopped',
-    '  - qwen | transport=stdio | started',
+    '  - qwen | transport=stdio | running',
   ]);
   assert.deepEqual(switchLines, ['[lark-agent-bridge] active provider for project-a set to qwen']);
   assert.deepEqual(setActiveCalls, [
@@ -659,6 +666,39 @@ test('lists and switches providers for the bound project', async () => {
       projectInstanceId: 'project-a',
       provider: 'qwen',
     },
+  ]);
+});
+
+test('shows a friendly error when provider switching fails', async () => {
+  const bindingService = createBindingService();
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: false,
+          active: false,
+          removed: true,
+          sessionCount: 0,
+        };
+      },
+      async setActiveProvider() {
+        throw new Error('Project xiaoan-cli is not active');
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//provider cc',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] failed to switch provider: Project xiaoan-cli is not active',
   ]);
 });
 
@@ -1357,11 +1397,14 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //reload projects   - reload projects.json',
+    '  //project add local <path> [id] - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
     '  //approve-auto <minutes> - auto-approve this chat for N minutes',
+    '  //approve-test      - create a test approval card for manual button checks',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -1410,11 +1453,14 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //reload projects   - reload projects.json',
+    '  //project add local <path> [id] - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
     '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
     '  //approvals         - list pending approval requests',
     '  //approve <id>      - approve one request',
     '  //approve-all <id>  - approve one request for the session',
     '  //approve-auto <minutes> - auto-approve this chat for N minutes',
+    '  //approve-test      - create a test approval card for manual button checks',
     '  //deny <id>         - deny one request',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
@@ -1423,4 +1469,492 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //thread/read <id>  - inspect a codex thread',
     '  //review            - review the current working tree',
   ]);
+});
+
+test('//project shows usage when called without arguments', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project',
+  });
+
+  assert.deepEqual(lines, [
+    'Usage:',
+    '  //project add local <path> [id]  - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
+  ]);
+});
+
+test('//project add local calls addLocalProject dependency', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id || 'my-project', cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local /some/path',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "my-project"',
+    '  cwd: /some/path',
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: '/some/path', id: undefined }]);
+});
+
+test('//project add local with custom id', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id!, cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local /some/path custom-id',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "custom-id"',
+    '  cwd: /some/path',
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: '/some/path', id: 'custom-id' }]);
+});
+
+test('//project add local keeps lower-case spaced paths intact', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'bridge-test-'));
+  const projectDir = path.join(tempDir, 'my project');
+  await mkdir(projectDir);
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id || 'my project', cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: `//project add local ${projectDir}`,
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "my project"',
+    `  cwd: ${projectDir}`,
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: projectDir, id: undefined }]);
+
+  await rm(tempDir, { recursive: true, force: true });
+});
+
+test('//project add local still parses a custom id after a spaced path', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'bridge-test-'));
+  const projectDir = path.join(tempDir, 'my project');
+  await mkdir(projectDir);
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id!, cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: `//project add local ${projectDir} app1`,
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "app1"',
+    `  cwd: ${projectDir}`,
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: projectDir, id: 'app1' }]);
+
+  await rm(tempDir, { recursive: true, force: true });
+});
+
+test('//project add local shows error when dependency not configured', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local /some/path',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] adding local projects is not configured']);
+});
+
+test('//project add local shows usage when path is missing', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async () => ({ projectInstanceId: 'test', cwd: '/test' }),
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local',
+  });
+
+  assert.deepEqual(lines, ['Usage: //project add local <path> [id]']);
+});
+
+test('//project add remote calls addRemoteProject dependency', async () => {
+  const bindingService = createBindingService();
+  const addRemoteProjectCalls: Array<{ gitRemote: string }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addRemoteProject: async (input) => {
+      addRemoteProjectCalls.push(input);
+      return { projectInstanceId: 'my-repo', cwd: '/repos/my-repo' };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add remote https://github.com/user/repo.git',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added remote project "my-repo"',
+    '  cwd: /repos/my-repo',
+  ]);
+  assert.deepEqual(addRemoteProjectCalls, [{ gitRemote: 'https://github.com/user/repo.git' }]);
+});
+
+test('//project add remote shows error when dependency not configured', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add remote https://github.com/user/repo.git',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] adding remote projects is not configured']);
+});
+
+test('//project add remote shows usage when git remote is missing', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addRemoteProject: async () => ({ projectInstanceId: 'test', cwd: '/test' }),
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add remote',
+  });
+
+  assert.deepEqual(lines, ['Usage: //project add remote <git-remote>']);
+});
+
+test('//project add shows usage when type is missing', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add',
+  });
+
+  assert.deepEqual(lines, [
+    'Usage:',
+    '  //project add local <path> [id]  - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
+  ]);
+});
+
+test('//project add shows usage for unknown type', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add unknown',
+  });
+
+  assert.deepEqual(lines, [
+    'Usage:',
+    '  //project add local <path> [id]  - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
+  ]);
+});
+
+test('//project shows usage for unknown subcommand', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project unknown',
+  });
+
+  assert.deepEqual(lines, [
+    'Usage:',
+    '  //project add local <path> [id]  - add a local project',
+    '  //project add remote <git-remote> - add a project from git remote',
+  ]);
+});
+
+test('//project add local handles path with spaces', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id || 'My Project', cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local /srv/My Project',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "My Project"',
+    '  cwd: /srv/My Project',
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: '/srv/My Project', id: undefined }]);
+});
+
+test('//project add local handles path with spaces and custom id', async () => {
+  const bindingService = createBindingService();
+  const addLocalProjectCalls: Array<{ path: string; id?: string }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() {
+        return {
+          projectInstanceId: 'project-a',
+          configured: true,
+          active: true,
+          removed: false,
+          sessionCount: 1,
+        };
+      },
+    },
+    addLocalProject: async (input) => {
+      addLocalProjectCalls.push(input);
+      return { projectInstanceId: input.id!, cwd: input.path };
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//project add local /srv/My Project app1',
+  });
+
+  assert.deepEqual(lines, [
+    '[lark-agent-bridge] added local project "app1"',
+    '  cwd: /srv/My Project',
+  ]);
+  assert.deepEqual(addLocalProjectCalls, [{ path: '/srv/My Project', id: 'app1' }]);
 });

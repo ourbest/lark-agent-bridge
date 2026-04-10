@@ -4,7 +4,7 @@ import test from 'node:test';
 import { ProviderManager } from '../../src/runtime/provider-manager.ts';
 import { InMemoryBindingStore } from '../../src/storage/binding-store.ts';
 
-test('defaults to codex, cc, and qwen and selects the first provider', () => {
+test('defaults to codex, cc, qwen, and gemini and selects the first provider', () => {
   const manager = new ProviderManager({
     projectInstanceId: 'project-a',
     cwd: '/repo/project-a',
@@ -15,9 +15,10 @@ test('defaults to codex, cc, and qwen and selects the first provider', () => {
   });
 
   assert.deepEqual(manager.listProviders(), [
-    { provider: 'codex', transport: 'stdio', port: undefined, active: true, started: false },
-    { provider: 'cc', transport: 'stdio', port: undefined, active: false, started: false },
-    { provider: 'qwen', transport: 'stdio', port: undefined, active: false, started: false },
+    { provider: 'codex', transport: 'stdio', active: true, started: false },
+    { provider: 'cc', transport: 'stdio', active: false, started: false },
+    { provider: 'qwen', transport: 'stdio', active: false, started: false },
+    { provider: 'gemini', transport: 'stdio', active: false, started: false },
   ]);
   assert.equal(manager.getActiveProviderName(), 'codex');
 });

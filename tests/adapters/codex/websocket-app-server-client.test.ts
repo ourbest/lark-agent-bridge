@@ -28,7 +28,7 @@ test('uses websocket transport when configured and collects streamed agent text'
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     transport: 'websocket',
     websocketUrl: 'ws://127.0.0.1:4000',
@@ -118,7 +118,7 @@ test('rejects an in-flight reply when the websocket connection closes', async ()
     clientInfo: {
       name: 'bridge-test',
       title: 'Bridge Test',
-      version: '0.1.0',
+      version: '0.2.0-dev',
     },
     transport: 'websocket',
     websocketUrl: 'ws://127.0.0.1:4000',

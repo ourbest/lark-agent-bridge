@@ -9,6 +9,10 @@ export interface LarkEventPayload {
   senderId: string;
   timestamp: string;
   attachments?: InboundAttachment[];
+  cardAction?: {
+    action: 'approve' | 'approve-all' | 'approve-auto' | 'deny';
+    requestId: string;
+  };
 }
 
 export interface LarkSendResult {
@@ -51,11 +55,14 @@ export class LarkAdapter {
     }
 
     this.transport.onEvent(async (event) => {
+      console.log(`[lark-adapter] received event: messageId=${event.messageId}, sessionId=${event.sessionId}, textLength=${event.text.length}, attachments=${event.attachments?.length ?? 0}, cardAction=${event.cardAction !== undefined}`);
       const normalized = this.normalizeInboundEvent(event);
       if (normalized === null || this.messageHandler === null) {
+        console.warn(`[lark-adapter] dropping event: normalized=${normalized === null ? 'null' : 'valid'}, handler=${this.messageHandler === null ? 'null' : 'present'}`);
         return;
       }
 
+      console.log(`[lark-adapter] forwarding to messageHandler: text="${normalized.text.substring(0, 100)}${normalized.text.length > 100 ? '...' : ''}"`);
       await this.messageHandler(normalized);
     });
     await this.transport.start?.();
@@ -79,6 +86,10 @@ export class LarkAdapter {
 
     if (event.attachments !== undefined) {
       result.attachments = event.attachments;
+    }
+
+    if (event.cardAction !== undefined) {
+      result.cardAction = event.cardAction;
     }
 
     return result;

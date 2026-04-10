@@ -22,6 +22,10 @@ export interface InboundMessage {
   timestamp: string;
   /** 附件列表（文件/图片消息） */
   attachments?: InboundAttachment[];
+  cardAction?: {
+    action: 'approve' | 'approve-all' | 'approve-auto' | 'deny';
+    requestId: string;
+  };
 }
 
 export interface OutboundMessage {
