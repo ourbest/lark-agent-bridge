@@ -16,6 +16,7 @@ import './runtime/bootstrap.test.ts';
 import './runtime/codex-console-config.test.ts';
 import './runtime/codex-config.test.ts';
 import './runtime/codex-console.test.ts';
+import './runtime/project-registry.test.ts';
 import './runtime/codex-project-registry.test.ts';
 import './runtime/codex-project.test.ts';
 import './runtime/codex-command-formatting.test.ts';

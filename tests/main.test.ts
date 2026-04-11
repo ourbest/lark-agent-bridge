@@ -36,6 +36,9 @@ test('patchFeishuMessageCard sends a PATCH request without msg_type', async () =
     {
       method: 'PATCH',
       url: '/open-apis/im/v1/messages/om_card_123',
+      params: {
+        msg_type: 'interactive',
+      },
       data: {
         content: JSON.stringify({
           header: {
@@ -46,7 +49,6 @@ test('patchFeishuMessageCard sends a PATCH request without msg_type', async () =
       },
     },
   ]);
-  assert.equal('msg_type' in (calls[0]?.data ?? {}), false);
 });
 
 test('formatCodexCommandResultWithFallback enriches sparse thread/read results from thread/list', async () => {
@@ -91,12 +93,12 @@ test('formatCodexCommandResultWithFallback enriches sparse thread/read results f
     },
   ]);
   assert.deepEqual(lines, [
-    '[lark-agent-bridge] thread/read',
-    'id: thr_123',
-    'preview: hello world',
-    'status: loaded',
-    'cwd: /tmp/project',
-    'source: vscode',
+    '## [lark-agent-bridge] thread/read',
+    '- id: thr_123',
+    '- preview: hello world',
+    '- status: loaded',
+    '- cwd: /tmp/project',
+    '- source: vscode',
   ]);
 });
 

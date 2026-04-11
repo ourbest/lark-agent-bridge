@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProjectRegistry } from '../../src/runtime/project-registry.ts';
-import type { CodexProjectClient } from '../../src/runtime/codex-project-registry.ts';
+import type { CodexProjectClient } from '../../src/runtime/codex-project.ts';
 import { InMemoryBindingStore } from '../../src/storage/binding-store.ts';
 
 function createMockClient(projectId: string): CodexProjectClient {
@@ -156,6 +156,53 @@ test('reuses a started provider when switching back to it', async () => {
   assert.equal(reply?.text, 'qwen:again');
   assert.equal(createCalls.filter((call) => call.provider === 'qwen').length, 1);
   assert.deepEqual(stopCalls, []);
+});
+
+test('aborts the active reply for a project', async () => {
+  let resolveReply: ((value: string) => void) | null = null;
+  let abortCalls = 0;
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? {
+            projectInstanceId: 'project-a',
+            websocketUrl: 'ws://localhost:4000',
+            cwd: '/repo/project-a',
+          }
+        : null,
+    createClient: () => ({
+      generateReply: async () =>
+        await new Promise<string>((resolve) => {
+          resolveReply = resolve;
+        }),
+      abortCurrentTask: async () => {
+        abortCalls += 1;
+        return true;
+      },
+      stop: async () => {},
+    }),
+  });
+
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+  const handler = registry.getHandler('project-a');
+  assert.ok(handler !== null);
+
+  const replyPromise = handler!({
+    projectInstanceId: 'project-a',
+    message: { text: 'hello' },
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const aborted = await (registry as unknown as { abortCurrentTask(projectId: string): Promise<boolean> }).abortCurrentTask('project-a');
+  assert.equal(aborted, true);
+  assert.equal(abortCalls, 1);
+
+  resolveReply?.('late reply');
+
+  await assert.doesNotReject(replyPromise);
+  assert.deepEqual(await replyPromise, {
+    text: '[lark-agent-bridge] task aborted',
+  });
 });
 
 test('persists the active provider and preserves it across registry recreation', async () => {

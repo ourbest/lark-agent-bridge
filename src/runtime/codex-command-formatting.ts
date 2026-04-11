@@ -17,42 +17,42 @@ export function formatCodexCommandResult(method: string, result: unknown): strin
     return formatObject(method, result);
   }
 
-  return [`[lark-agent-bridge] ${method}: ${formatScalar(result)}`];
+  return [`## [lark-agent-bridge] ${method}`, `- ${formatScalar(result)}`];
 }
 
 function formatList(method: string, items: unknown[], maxItems: number | null): string[] {
-  const lines = [`[lark-agent-bridge] ${method}: ${items.length} item(s)`];
+  const lines = [`## [lark-agent-bridge] ${method}`];
 
   if (items.length === 0) {
-    lines.push('no items');
+    lines.push('- no items');
     return lines;
   }
 
   const displayedItems = maxItems === null ? items : items.slice(0, maxItems);
   for (const [index, item] of displayedItems.entries()) {
     if (!isRecord(item)) {
-      lines.push(`${index + 1}. ${formatScalar(item)}`);
+      lines.push(`- ${index + 1}. ${formatScalar(item)}`);
       continue;
     }
 
     const heading = readBestIdentifier(item);
-    lines.push(`${index + 1}. ${heading}`);
-    lines.push(...formatSummaryFields(item, '   '));
+    lines.push(`- ${index + 1}. ${heading}`);
+    lines.push(...formatSummaryFields(item, '  '));
   }
 
   if (maxItems !== null && items.length > maxItems) {
-    lines.push(`... ${items.length - maxItems} more item(s)`);
+    lines.push(`- ... ${items.length - maxItems} more item(s)`);
   }
 
   return lines;
 }
 
 function formatObject(method: string, value: UnknownRecord): string[] {
-  return [`[lark-agent-bridge] ${method}`, ...formatObjectFields(value)];
+  return [`## [lark-agent-bridge] ${method}`, ...formatObjectFields(value)];
 }
 
 function formatReviewStartResponse(value: UnknownRecord): string[] {
-  const lines = ['[lark-agent-bridge] review/start'];
+  const lines = ['## [lark-agent-bridge] review/start'];
   const reviewThreadId = typeof value.reviewThreadId === 'string' ? value.reviewThreadId : null;
   const turn = isRecord(value.turn) ? value.turn : null;
   const turnId = turn !== null && typeof turn.id === 'string' ? turn.id : null;
@@ -63,19 +63,19 @@ function formatReviewStartResponse(value: UnknownRecord): string[] {
       : null;
 
   if (reviewThreadId !== null) {
-    lines.push(`reviewThreadId: ${reviewThreadId}`);
+    lines.push(`- reviewThreadId: ${reviewThreadId}`);
   }
 
   if (turnId !== null) {
-    lines.push(`turnId: ${turnId}`);
+    lines.push(`- turnId: ${turnId}`);
   }
 
   if (status !== null) {
-    lines.push(`status: ${status}`);
+    lines.push(`- status: ${status}`);
   }
 
   if (error !== null && error.trim() !== '') {
-    lines.push(`error: ${formatScalar(error)}`);
+    lines.push(`- error: ${formatScalar(error)}`);
   }
 
   return lines;
@@ -135,7 +135,7 @@ function formatSummaryFields(value: UnknownRecord, indent: string): string[] {
   for (const [label, fieldValue] of fields) {
     const formatted = formatFieldValue(label, fieldValue);
     if (formatted !== null) {
-      lines.push(`${indent}${label}: ${formatted}`);
+      lines.push(`${indent}- ${label}: ${formatted}`);
     }
   }
 
@@ -144,7 +144,7 @@ function formatSummaryFields(value: UnknownRecord, indent: string): string[] {
 
 function formatKeyValueLine(key: string, value: unknown): string | null {
   const formatted = formatFieldValue(key, value);
-  return formatted === null ? null : `${key}: ${formatted}`;
+  return formatted === null ? null : `- ${key}: ${formatted}`;
 }
 
 function formatFieldValue(key: string, value: unknown): string | null {

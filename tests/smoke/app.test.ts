@@ -143,6 +143,98 @@ test('boots the bridge runtime and forwards a routed reply back to lark', async 
   assert.equal(app.ready, false);
 });
 
+test('replaces empty project replies with a visible placeholder card', async () => {
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const warnings: string[] = [];
+  const originalConsoleWarn = console.warn;
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+
+  const transport = {
+    onEvent(handler) {
+      eventHandler = handler;
+    },
+    async sendMessage() {
+      return undefined;
+    },
+    async sendCard(message) {
+      sentCards.push(message);
+      return { messageId: `card-${sentCards.length}` };
+    },
+    async updateCard() {
+      return undefined;
+    },
+    async sendReaction() {
+      return undefined;
+    },
+  } as LarkTransport;
+
+  const app = createBridgeApp({
+    config: loadConfig({}),
+    larkTransport: transport,
+    projectRegistry: {
+      async describeProject(projectInstanceId) {
+        return {
+          projectInstanceId,
+          configured: false,
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+      async getActiveProvider() {
+        return 'codex';
+      },
+      getProjectConfig(projectInstanceId) {
+        return projectInstanceId === 'project-a'
+          ? {
+              projectInstanceId,
+              cwd: '/repo/project-a',
+              transport: 'stdio',
+              activeProvider: 'codex',
+            }
+          : null;
+      },
+    },
+  });
+
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((arg) => String(arg)).join(' '));
+  };
+
+  try {
+    app.router.registerProjectHandler('project-a', async () => ({
+      text: '',
+    }));
+
+    await app.bindingService.bindProjectToSession('project-a', 'session-a');
+    await app.start();
+    assert.ok(eventHandler);
+
+    await eventHandler!({
+      sessionId: 'session-a',
+      messageId: 'message-empty-reply',
+      text: 'hello',
+      senderId: 'user-a',
+      timestamp: '2026-03-29T00:00:00.000Z',
+    });
+
+    assert.equal(sentCards.length, 2);
+    const replyCard = JSON.parse(sentCards[1]?.card.content ?? '{}') as {
+      body?: { elements?: Array<{ tag?: string; content?: string }> };
+    };
+    assert.match(sentCards[1]?.fallbackText ?? '', /\[lark-agent-bridge\] empty reply from project-a/);
+    assert.match(replyCard.body?.elements?.[0]?.content ?? '', /\[lark-agent-bridge\] empty reply from project-a/);
+    assert.ok(warnings.some((line) =>
+      line.includes('[lark-agent-bridge] empty reply fallback:')
+      && line.includes('project=project-a')
+      && line.includes('session=session-a'),
+    ));
+  } finally {
+    console.warn = originalConsoleWarn;
+    await app.stop();
+  }
+});
+
 test('updates the original approval card in place when a card action is triggered', async () => {
   const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
   const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
@@ -878,7 +970,7 @@ test('handles //status using the supplied project registry', async () => {
   assert.deepEqual(sentMessages, []);
   assert.equal(sentCards.length, 1);
   assert.equal(sentCards[0]?.sessionId, 'session-a');
-  assert.match(sentCards[0]?.fallbackText ?? '', /\[lark-agent-bridge\] Bridge State:/);
+  assert.match(sentCards[0]?.fallbackText ?? '', /## \[lark-agent-bridge\] Bridge State/);
   const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
     header?: { title?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
@@ -1039,6 +1131,7 @@ test('renders codex query command results as interactive cards', async () => {
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
   assert.equal(firstCard.header?.title?.content, 'app/list');
+  assert.doesNotMatch(JSON.stringify(firstCard), /```text/);
   assert.ok(firstCard.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('1. shell')));
 
   const secondCard = JSON.parse(sentCards[1]?.card.content ?? '{}') as {
@@ -1046,6 +1139,7 @@ test('renders codex query command results as interactive cards', async () => {
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
   assert.equal(secondCard.header?.title?.content, 'thread/read');
+  assert.doesNotMatch(JSON.stringify(secondCard), /```text/);
   assert.ok(secondCard.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('id: thr_123')));
 
   await app.stop();
@@ -1406,11 +1500,14 @@ test('renders //help as an interactive card for easier reading', async () => {
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
   assert.equal(card.header?.title?.content, 'lark-agent-bridge help');
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('## Bridge commands')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('## Codex commands')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//bind')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//projects')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//providers')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//provider <name>')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//new')));
+  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//abort')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//approve-auto <minutes>')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('//approve-test')));
 
@@ -1962,8 +2059,8 @@ test('handles //reload projects by reloading a real projects file and reconcilin
 
   assert.equal(sentMessages[0]?.text, undefined);
   assert.equal(sentCards.length, 2);
-  assert.match(sentCards[1]?.fallbackText ?? '', /\[lark-agent-bridge\] Bridge State:/);
-  assert.match(sentCards[1]?.fallbackText ?? '', /Model: gpt-5.4-mini \(reasoning medium, summaries auto\)/);
+  assert.match(sentCards[1]?.fallbackText ?? '', /## \[lark-agent-bridge\] Bridge State/);
+  assert.match(sentCards[1]?.fallbackText ?? '', /model: gpt-5.4-mini \(reasoning medium, summaries auto\)/i);
 
   await app.stop();
   rmSync(tempDir, { recursive: true, force: true });
