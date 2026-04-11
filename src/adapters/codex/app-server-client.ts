@@ -93,6 +93,11 @@ export class CodexAppServerClient {
   private pendingReplyRejecter: ((error: Error) => void) | null = null;
   private replyChunks: string[] = [];
   private finalReplyText: string | null = null;
+  private currentReplyDeltaCount = 0;
+  private currentReplyCompletedCount = 0;
+  private currentReplyTurnId: string | null = null;
+  private currentReplyStatus: string | null = null;
+  private currentReplyAborted = false;
   onTextDelta: ((text: string) => void) | null = null;
   onTurnCompleted: (() => void) | null = null;
   onThreadChanged: ((threadId: string) => void) | null = null;
@@ -114,6 +119,11 @@ export class CodexAppServerClient {
 
     this.replyChunks = [];
     this.finalReplyText = null;
+    this.currentReplyDeltaCount = 0;
+    this.currentReplyCompletedCount = 0;
+    this.currentReplyTurnId = null;
+    this.currentReplyStatus = null;
+    this.currentReplyAborted = false;
     const reply = new Promise<string>((resolve, reject) => {
       this.pendingReplyResolver = resolve;
       this.pendingReplyRejecter = reject;
@@ -179,6 +189,39 @@ export class CodexAppServerClient {
     return threadId;
   }
 
+  async listThreads(): Promise<Array<Record<string, unknown>>> {
+    await this.ensureStarted();
+    const response = await this.sendRequest('thread/list', {});
+    return this.readArray(response, ['threads']);
+  }
+
+  async cancelThread(id: string): Promise<void> {
+    await this.ensureStarted();
+    await this.sendRequest('thread/cancel', { threadId: id });
+  }
+
+  async pauseThread(id: string): Promise<void> {
+    await this.ensureStarted();
+    await this.sendRequest('thread/pause', { threadId: id });
+  }
+
+  async abortCurrentTask(): Promise<boolean> {
+    if (this.pendingReplyRejecter === null) {
+      return false;
+    }
+
+    this.currentReplyAborted = true;
+    this.replyChunks = [];
+    this.finalReplyText = null;
+
+    const error = new Error('task aborted');
+    error.name = 'AbortError';
+    this.pendingReplyRejecter(error);
+    this.pendingReplyResolver = null;
+    this.pendingReplyRejecter = null;
+    return true;
+  }
+
   async respondToServerRequest(requestId: number | string, result: unknown): Promise<void> {
     await this.ensureStarted();
     this.sendRaw({ id: requestId, result });
@@ -193,6 +236,7 @@ export class CodexAppServerClient {
       this.process.kill();
       this.process = null;
     }
+    this.currentReplyAborted = false;
   }
 
   private async ensureStarted(): Promise<void> {
@@ -378,8 +422,12 @@ export class CodexAppServerClient {
     }
 
     if (message.method === 'item/agentMessage/delta') {
+      if (this.currentReplyAborted) {
+        return;
+      }
       const text = this.readString(message.params, ['text']);
       if (text !== null) {
+        this.currentReplyDeltaCount += 1;
         this.replyChunks.push(text);
         this.options.onTextDelta?.(text);
         this.onTextDelta?.(text);
@@ -388,8 +436,12 @@ export class CodexAppServerClient {
     }
 
     if (message.method === 'item/completed') {
+      if (this.currentReplyAborted) {
+        return;
+      }
       const item = this.readRecord(message.params, ['item']);
       const text = this.readItemText(item);
+      this.currentReplyCompletedCount += 1;
       if (text !== null) {
         this.finalReplyText = text;
       }
@@ -405,7 +457,13 @@ export class CodexAppServerClient {
     }
 
     if (message.method === 'turn/completed') {
+      if (this.currentReplyAborted) {
+        return;
+      }
       const status = this.readTurnStatus(message.params);
+      this.currentReplyStatus = status;
+      this.currentReplyTurnId =
+        this.readString(message.params, ['turnId']) ?? this.readString(message.params, ['turn', 'id']);
       if (status === 'failed' || status === 'interrupted') {
         const errorMessage = this.readErrorMessage(message.params) ?? 'Codex turn failed';
         this.pendingReplyRejecter?.(new Error(errorMessage));
@@ -415,6 +473,11 @@ export class CodexAppServerClient {
       }
 
       const reply = this.finalReplyText ?? this.replyChunks.join('');
+      if (reply.trim() === '') {
+        console.warn(
+          `[codex-app-server-client] empty reply: thread=${this.threadId ?? 'n/a'} turn=${this.currentReplyTurnId ?? 'n/a'} status=${this.currentReplyStatus ?? 'unknown'} deltas=${this.currentReplyDeltaCount} completedItems=${this.currentReplyCompletedCount}`,
+        );
+      }
       this.replyChunks = [];
       this.finalReplyText = null;
       this.options.onTurnCompleted?.();
@@ -493,6 +556,11 @@ export class CodexAppServerClient {
     this.threadId = null;
     this.replyChunks = [];
     this.finalReplyText = null;
+    this.currentReplyDeltaCount = 0;
+    this.currentReplyCompletedCount = 0;
+    this.currentReplyTurnId = null;
+    this.currentReplyStatus = null;
+    this.currentReplyAborted = false;
 
     const pendingRequests = [...this.pendingRequests.values()];
     this.pendingRequests.clear();
@@ -533,31 +601,45 @@ export class CodexAppServerClient {
     return typeof current === 'object' && current !== null ? (current as Record<string, unknown>) : null;
   }
 
+  private readArray(value: unknown, path: string[]): Array<Record<string, unknown>> {
+    let current: unknown = value;
+    for (const segment of path) {
+      if (typeof current !== 'object' || current === null || !(segment in current)) {
+        return [];
+      }
+      current = (current as Record<string, unknown>)[segment];
+    }
+
+    return Array.isArray(current) ? (current as Array<Record<string, unknown>>) : [];
+  }
+
   private readItemText(item: Record<string, unknown> | null): string | null {
     if (item === null) {
       return null;
     }
 
-    const text = item.text;
-    if (typeof text === 'string') {
-      return text;
+    return this.readTextValue(item.text) ?? this.readTextValue(item.content);
+  }
+
+  private readTextValue(value: unknown): string | null {
+    if (typeof value === 'string') {
+      return value;
     }
 
-    const content = item.content;
-    if (typeof content === 'string') {
-      return content;
-    }
-
-    if (Array.isArray(content)) {
+    if (Array.isArray(value)) {
       const parts: string[] = [];
-      for (const part of content) {
-        if (typeof part === 'string') {
-          parts.push(part);
-        } else if (typeof part === 'object' && part !== null && 'text' in part && typeof (part as Record<string, unknown>).text === 'string') {
-          parts.push(String((part as Record<string, unknown>).text));
+      for (const part of value) {
+        const text = this.readTextValue(part);
+        if (text !== null) {
+          parts.push(text);
         }
       }
       return parts.length > 0 ? parts.join('') : null;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const record = value as Record<string, unknown>;
+      return this.readTextValue(record.text) ?? this.readTextValue(record.content);
     }
 
     return null;
