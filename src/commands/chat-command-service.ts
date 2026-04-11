@@ -2,6 +2,7 @@ import type { BindingService } from '../core/binding/binding-service.ts';
 import type { ProjectState } from '../runtime/project-registry.ts';
 import type { ApprovalService } from '../runtime/approval-service.ts';
 import type { ProjectProviderConfig, ProjectProviderName } from '../runtime/provider-registry.ts';
+import type { Thread } from '../runtime/thread-manager.ts';
 
 export interface ChatCommandInput {
   sessionId: string;
@@ -54,6 +55,9 @@ export interface ChatCommandServiceDependencies {
     startThread?(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
     getLastThread?(projectInstanceId: string, sessionId: string): Promise<string | null>;
     resumeThread?(projectInstanceId: string, threadId: string): Promise<string>;
+    listThreads?(projectInstanceId: string): Promise<Thread[]>;
+    cancelThread?(projectInstanceId: string, threadId: string): Promise<void>;
+    pauseThread?(projectInstanceId: string, threadId: string): Promise<void>;
   };
   approvalService?: ApprovalService;
   getCodexStatusLines?: () => Promise<string[]>;
@@ -69,7 +73,7 @@ export interface ChatCommandService {
 }
 
 function isBridgeCommandToken(token: string): boolean {
-  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'projects' || token === 'providers' || token === 'provider' || token === 'project' || token === 'approve-test';
+  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'abort' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'projects' || token === 'providers' || token === 'provider' || token === 'project' || token === 'approve-test' || token === 'thread';
 }
 
 function isCodexCommandToken(token: string): boolean {
@@ -116,6 +120,7 @@ function buildHelpLines(): string[] {
     '  //read <path>       - read a project file as a card',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
+    '  //abort             - abort the current task',
     '  //reload projects   - reload projects.json',
     '  //project add local <path> [id] - add a local project',
     '  //project add remote <git-remote> - add a project from git remote',
@@ -126,6 +131,10 @@ function buildHelpLines(): string[] {
     '  //approve-auto <minutes> - auto-approve this chat for N minutes',
     '  //approve-test      - create a test approval card for manual button checks',
     '  //deny <id>         - deny one request',
+    '  //thread list       - list background tasks (interactive card)',
+    '  //thread cancel <id> - cancel a background task',
+    '  //thread pause <id>  - pause a background task',
+    '  //thread resume <id> - resume a background task',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
     '  //session/list      - list codex sessions',
@@ -169,15 +178,15 @@ async function buildSessionStateLines(
 
   const state = await projectRegistry.describeProject(projectId);
   const lines = [
-    '[lark-agent-bridge] Bridge State:',
-    `  chatId: ${sessionId}`,
-    `  senderId: ${senderId}`,
-    `  projectId: ${projectId}`,
-    '[lark-agent-bridge] Codex State:',
-    `  projectId: ${state.projectInstanceId}`,
-    `  configured: ${yesNo(state.configured)}`,
-    `  active: ${yesNo(state.active)}`,
-    `  removed: ${yesNo(state.removed)}`,
+    '## [lark-agent-bridge] Bridge State',
+    `- chatId: ${sessionId}`,
+    `- senderId: ${senderId}`,
+    `- projectId: ${projectId}`,
+    '## [lark-agent-bridge] Codex State',
+    `- projectId: ${state.projectInstanceId}`,
+    `- configured: ${yesNo(state.configured)}`,
+    `- active: ${yesNo(state.active)}`,
+    `- removed: ${yesNo(state.removed)}`,
   ];
 
   if (getCodexStatusLines !== undefined) {
@@ -245,7 +254,7 @@ function buildUnknownCommandLines(input: string): string[] {
 
 function formatProviderSummary(provider: ProjectProviderSummary, activeProvider?: string | null): string {
   const parts = [
-    `  - ${provider.provider}`,
+    `- ${provider.provider}`,
     provider.transport ? `transport=${provider.transport}` : null,
     provider.port !== undefined ? `port=${provider.port}` : null,
     provider.active === true || activeProvider === provider.provider ? 'active' : null,
@@ -257,36 +266,33 @@ function formatProviderSummary(provider: ProjectProviderSummary, activeProvider?
 
 async function buildProjectsLines(dependencies: ChatCommandServiceDependencies): Promise<string[]> {
   if (dependencies.projectRegistry.listProjects === undefined) {
-    return ['[lark-agent-bridge] project listing is not configured'];
+    return ['## [lark-agent-bridge] projects', '- project listing is not configured'];
   }
 
   const projects = await dependencies.projectRegistry.listProjects();
   if (projects.length === 0) {
-    return ['[lark-agent-bridge] no projects configured'];
+    return ['## [lark-agent-bridge] projects', '- no projects configured'];
   }
 
-  const lines = ['[lark-agent-bridge] projects:'];
+  const lines = ['## [lark-agent-bridge] projects'];
   for (const project of projects) {
-    const providerLabel = project.activeProvider !== undefined && project.activeProvider !== null
-      ? ` | provider=${project.activeProvider}`
-      : '';
-    lines.push(`  - ${project.projectInstanceId}${providerLabel}`);
+    lines.push(`- ${project.projectInstanceId}`);
     if (project.cwd !== undefined && project.cwd !== null) {
-      lines.push(`    cwd: ${project.cwd}`);
+      lines.push(`  - cwd: ${project.cwd}`);
     }
     if (project.source !== undefined && project.source !== null) {
-      lines.push(`    source: ${project.source}`);
+      lines.push(`  - source: ${project.source}`);
     }
     if (project.activeProvider !== undefined && project.activeProvider !== null) {
-      lines.push(`    active provider: ${project.activeProvider}`);
+      lines.push(`  - active provider: ${project.activeProvider}`);
     }
     if (Array.isArray(project.providers) && project.providers.length > 0) {
-      lines.push(`    providers: ${project.providers.map((entry) => entry.provider).join(', ')}`);
+      lines.push(`  - providers: ${project.providers.map((entry) => entry.provider).join(', ')}`);
     }
     if (project.active === true || project.configured === true || project.removed === true) {
-      lines.push(`    configured: ${yesNo(project.configured === true)}`);
-      lines.push(`    active: ${yesNo(project.active === true)}`);
-      lines.push(`    removed: ${yesNo(project.removed === true)}`);
+      lines.push(`  - configured: ${yesNo(project.configured === true)}`);
+      lines.push(`  - active: ${yesNo(project.active === true)}`);
+      lines.push(`  - removed: ${yesNo(project.removed === true)}`);
     }
   }
 
@@ -317,10 +323,10 @@ async function buildProvidersLines(
       : [];
 
   if (providers.length === 0) {
-    return [`[lark-agent-bridge] no providers configured for ${projectId}`];
+    return [`## [lark-agent-bridge] providers for ${projectId}`, `- no providers configured for ${projectId}`];
   }
 
-  const lines = [`[lark-agent-bridge] providers for ${projectId}:`];
+  const lines = [`## [lark-agent-bridge] providers for ${projectId}`];
   for (const provider of providers) {
     lines.push(formatProviderSummary(provider, activeProvider));
   }
@@ -766,6 +772,66 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
               'Usage:',
               '  //project add local <path> [id]  - add a local project',
               '  //project add remote <git-remote> - add a project from git remote',
+            ];
+          }
+
+          case 'thread': {
+            const projectId = await dependencies.bindingService.getProjectBySession(input.sessionId);
+            if (projectId === null) {
+              return formatNotBoundMessage();
+            }
+
+            if (parsed.args.length === 0 || parsed.args[0] === 'list') {
+              if (dependencies.projectRegistry.listThreads === undefined) {
+                return ['[lark-agent-bridge] thread listing is not configured'];
+              }
+
+              let threads: Thread[];
+              try {
+                threads = await dependencies.projectRegistry.listThreads(projectId);
+              } catch (error) {
+                return [`[lark-agent-bridge] failed to list threads: ${error instanceof Error ? error.message : String(error)}`];
+              }
+
+              if (threads.length === 0) {
+                return ['[lark-agent-bridge] no background tasks'];
+              }
+
+              return threads.map((t) =>
+                `${t.status === 'running' ? '●' : t.status === 'paused' ? '○' : '○'} ${t.name} (${t.status}) ${t.duration ?? ''}`.trim()
+              );
+            }
+
+            if (parsed.args[0] === 'cancel' || parsed.args[0] === 'pause' || parsed.args[0] === 'resume') {
+              if (parsed.args.length < 2) {
+                return [`Usage: //thread ${parsed.args[0]} <id>`];
+              }
+
+              const threadId = parsed.args[1];
+
+              try {
+                if (parsed.args[0] === 'cancel' && dependencies.projectRegistry.cancelThread) {
+                  await dependencies.projectRegistry.cancelThread(projectId, threadId);
+                } else if (parsed.args[0] === 'pause' && dependencies.projectRegistry.pauseThread) {
+                  await dependencies.projectRegistry.pauseThread(projectId, threadId);
+                } else if (parsed.args[0] === 'resume' && dependencies.projectRegistry.resumeThread) {
+                  await dependencies.projectRegistry.resumeThread(projectId, threadId);
+                } else {
+                  return [`[lark-agent-bridge] ${parsed.args[0]} is not supported by this provider`];
+                }
+              } catch (error) {
+                return [`[lark-agent-bridge] failed to ${parsed.args[0]} thread: ${error instanceof Error ? error.message : String(error)}`];
+              }
+
+              return [`[lark-agent-bridge] thread ${parsed.args[0]}d: ${threadId}`];
+            }
+
+            return [
+              'Usage:',
+              '  //thread list         - list background tasks',
+              '  //thread cancel <id>  - cancel a task',
+              '  //thread pause <id>   - pause a task',
+              '  //thread resume <id>  - resume a task',
             ];
           }
 
