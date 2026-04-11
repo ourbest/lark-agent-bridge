@@ -2,6 +2,7 @@ import type { CodexProjectClient } from './codex-project.ts';
 import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts';
 import type { BridgeRouter } from '../core/router/router.ts';
 import type { BridgeStateStore } from '../storage/binding-store.ts';
+import type { Thread } from './thread-manager.ts';
 import { ProviderManager } from './provider-manager.ts';
 import type { ProviderDescriptor, ProviderName, ProviderState } from './provider-registry.ts';
 
@@ -70,6 +71,10 @@ export interface ProjectRegistry {
   startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
   executeCommand(projectInstanceId: string, input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
   resumeThread(projectInstanceId: string, threadId: string): Promise<string>;
+  listThreads(projectInstanceId: string): Promise<Thread[]>;
+  cancelThread(projectInstanceId: string, threadId: string): Promise<void>;
+  pauseThread(projectInstanceId: string, threadId: string): Promise<void>;
+  abortCurrentTask(projectInstanceId: string): Promise<boolean>;
   getLastThread(projectInstanceId: string, sessionId: string): Promise<string | null>;
   getHandler(projectInstanceId: string): ((input: { projectInstanceId: string; message: { text: string } }) => Promise<{ text: string } | null>) | null;
   getProjectProviders(projectInstanceId: string): Promise<ProviderState[]>;
@@ -105,6 +110,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       bindingCount: number;
       sessions: Set<string>;
       config: ProjectConfig;
+      currentTaskController: AbortController | null;
     }
   >();
   const diagnosticsByProjectId = new Map<string, ProjectDiagnostics>();
@@ -122,6 +128,10 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     }
 
     return 'unknown error';
+  }
+
+  function isAbortError(error: unknown): boolean {
+    return error instanceof Error && (error.name === 'AbortError' || error.message === 'task aborted');
   }
 
   function readFailureReason(method: string, params?: Record<string, unknown>): string | null {
@@ -303,6 +313,54 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
+  async function runProjectReply(
+    projectId: string,
+    entry: { client: CodexProjectClient; providerManager: ProviderManager; bindingCount: number; sessions: Set<string>; config: ProjectConfig; currentTaskController: AbortController | null },
+    message: { text: string },
+  ): Promise<{ text: string } | null> {
+    const controller = new AbortController();
+    entry.currentTaskController = controller;
+
+    try {
+      const reply = await Promise.race<
+        { kind: 'reply'; text: string } | { kind: 'error'; error: unknown } | { kind: 'abort' }
+      >([
+        entry.client.generateReply({ text: message.text }).then(
+          (text) => ({ kind: 'reply', text }),
+          (error) => ({ kind: 'error', error }),
+        ),
+        new Promise<{ kind: 'abort' }>((resolve) => {
+          controller.signal.addEventListener('abort', () => resolve({ kind: 'abort' }), { once: true });
+        }),
+      ]);
+
+      if (reply.kind === 'abort') {
+        return { text: '[lark-agent-bridge] task aborted' };
+      }
+
+      if (reply.kind === 'error') {
+        throw reply.error;
+      }
+
+      return { text: reply.text };
+    } catch (error) {
+      if (isAbortError(error)) {
+        return { text: '[lark-agent-bridge] task aborted' };
+      }
+
+      setProjectDiagnostics(projectId, {
+        status: 'failed',
+        reason: toErrorMessage(error),
+        source: 'generateReply',
+      });
+      return null;
+    } finally {
+      if (entry.currentTaskController === controller) {
+        entry.currentTaskController = null;
+      }
+    }
+  }
+
   async function createEntry(projectId: string, config: ProjectConfig) {
     const providerManager = new ProviderManager({
       projectConfig: config,
@@ -325,22 +383,13 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       bindingCount: 0,
       sessions: new Set<string>(),
       config,
+      currentTaskController: null as AbortController | null,
     };
     activeProjects.set(projectId, entry);
 
     if (options.router) {
       options.router.registerProjectHandler(projectId, async ({ message }) => {
-        try {
-          const text = await client.generateReply({ text: message.text });
-          return { text };
-        } catch (error) {
-          setProjectDiagnostics(projectId, {
-            status: 'failed',
-            reason: toErrorMessage(error),
-            source: 'generateReply',
-          });
-          return null;
-        }
+        return await runProjectReply(projectId, entry, message);
       });
     }
 
@@ -590,18 +639,8 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       if (!entry) return null;
 
       return async ({ message }) => {
-        try {
-          const client = await entry.providerManager.ensureActiveClient();
-          const text = await client.generateReply({ text: message.text });
-          return { text };
-        } catch (error) {
-          setProjectDiagnostics(projectInstanceId, {
-            status: 'failed',
-            reason: toErrorMessage(error),
-            source: 'generateReply',
-          });
-          return null;
-        }
+        await entry.providerManager.ensureActiveClient();
+        return await runProjectReply(projectInstanceId, entry, message);
       };
     },
 
@@ -638,6 +677,67 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       }
 
       return resumedThreadId;
+    },
+
+    async listThreads(projectInstanceId: string): Promise<Thread[]> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry) {
+        throw new Error(`Project ${projectInstanceId} is not active`);
+      }
+
+      const client = entry.client;
+      if (client.listThreads === undefined) {
+        throw new Error(`Project ${projectInstanceId} does not support listing threads`);
+      }
+
+      const raw = await client.listThreads();
+      return raw.map((t) => ({
+        id: String(t.id ?? t.threadId ?? ''),
+        name: String(t.name ?? t.title ?? t.description ?? 'Untitled'),
+        description: String(t.description ?? ''),
+        status: (t.status as Thread['status']) ?? 'running',
+        createdAt: t.createdAt ? new Date(t.createdAt) : new Date(),
+        duration: t.duration,
+      }));
+    },
+
+    async cancelThread(projectInstanceId: string, threadId: string): Promise<void> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry) {
+        throw new Error(`Project ${projectInstanceId} is not active`);
+      }
+
+      if (entry.client.cancelThread === undefined) {
+        throw new Error(`Project ${projectInstanceId} does not support canceling threads`);
+      }
+
+      await entry.client.cancelThread(threadId);
+    },
+
+    async pauseThread(projectInstanceId: string, threadId: string): Promise<void> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry) {
+        throw new Error(`Project ${projectInstanceId} is not active`);
+      }
+
+      if (entry.client.pauseThread === undefined) {
+        throw new Error(`Project ${projectInstanceId} does not support pausing threads`);
+      }
+
+      await entry.client.pauseThread(threadId);
+    },
+
+    async abortCurrentTask(projectInstanceId: string): Promise<boolean> {
+      const entry = activeProjects.get(projectInstanceId);
+      if (!entry || entry.currentTaskController === null) {
+        return false;
+      }
+
+      entry.currentTaskController.abort();
+      if (typeof entry.client.abortCurrentTask === 'function') {
+        await entry.client.abortCurrentTask();
+      }
+      return true;
     },
 
     async getLastThread(projectInstanceId: string, sessionId: string): Promise<string | null> {

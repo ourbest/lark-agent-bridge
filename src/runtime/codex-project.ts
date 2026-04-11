@@ -7,6 +7,10 @@ export interface CodexProjectClient {
   startThread?(input: { cwd?: string; force?: boolean }): Promise<string>;
   executeCommand?(input: { method: string; params: Record<string, unknown> }): Promise<unknown>;
   resumeThread?(input: { threadId: string; cwd?: string }): Promise<string>;
+  listThreads?(): Promise<Array<{ id: string; name?: string; title?: string; description?: string; status?: string; createdAt?: string; duration?: string }>>;
+  cancelThread?(id: string): Promise<void>;
+  pauseThread?(id: string): Promise<void>;
+  abortCurrentTask?(): Promise<boolean> | boolean;
   onNotification?: ((message: { method: string; params?: Record<string, unknown> }) => void | Promise<void>) | null;
   onServerRequest?: ((request: CodexServerRequest) => void | Promise<void>) | null;
   onThreadChanged?: ((threadId: string) => void) | null;

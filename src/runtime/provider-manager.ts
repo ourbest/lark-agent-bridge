@@ -214,6 +214,34 @@ export class ProviderManager {
         }
         return await client.resumeThread(input);
       },
+      listThreads: async () => {
+        const client = await this.ensureActiveProviderClient();
+        if (client.listThreads === undefined) {
+          throw new Error(`Provider ${this.activeProvider} does not support listing threads`);
+        }
+        return await client.listThreads();
+      },
+      cancelThread: async (id: string) => {
+        const client = await this.ensureActiveProviderClient();
+        if (client.cancelThread === undefined) {
+          throw new Error(`Provider ${this.activeProvider} does not support canceling threads`);
+        }
+        return await client.cancelThread(id);
+      },
+      pauseThread: async (id: string) => {
+        const client = await this.ensureActiveProviderClient();
+        if (client.pauseThread === undefined) {
+          throw new Error(`Provider ${this.activeProvider} does not support pausing threads`);
+        }
+        return await client.pauseThread(id);
+      },
+      abortCurrentTask: async () => {
+        const client = this.getStartedClient(this.activeProvider);
+        if (client?.abortCurrentTask === undefined) {
+          return false;
+        }
+        return await client.abortCurrentTask();
+      },
       stop: async () => {
         await this.stop();
       },
