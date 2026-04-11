@@ -5,6 +5,7 @@ export interface BindingStore {
   deleteByProject(projectInstanceId: string): void;
   deleteBySession(sessionId: string): void;
   getAllBindings(): BindingRecord[];
+  updateSessionName(sessionId: string, name: string): void;
 }
 
 export interface ThreadMemoryRecord {
@@ -23,6 +24,7 @@ export interface ThreadMemoryStore {
 export interface BindingRecord {
   projectInstanceId: string;
   sessionId: string;
+  sessionName?: string;
 }
 
 export interface BridgeProjectStateRecord {
@@ -42,6 +44,7 @@ export interface BridgeStateStore {
 export class InMemoryBindingStore implements BindingStore {
   private readonly projectToSession = new Map<string, string>();
   private readonly sessionToProject = new Map<string, string>();
+  private readonly sessionNames = new Map<string, string>();
   private readonly lastThreads = new Map<string, Map<string, string>>();
   private readonly projectStates = new Map<string, BridgeProjectStateRecord>();
 
@@ -77,9 +80,17 @@ export class InMemoryBindingStore implements BindingStore {
     }
   }
 
+  updateSessionName(sessionId: string, name: string): void {
+    this.sessionNames.set(sessionId, name);
+  }
+
   getAllBindings(): BindingRecord[] {
     return Array.from(this.projectToSession.entries()).map(
-      ([projectInstanceId, sessionId]) => ({ projectInstanceId, sessionId }),
+      ([projectInstanceId, sessionId]) => ({
+        projectInstanceId,
+        sessionId,
+        sessionName: this.sessionNames.get(sessionId),
+      }),
     );
   }
 
