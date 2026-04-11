@@ -1584,6 +1584,95 @@ test('renders unbound guidance as an interactive card', async () => {
   await app.stop();
 });
 
+test('keeps a reconnecting project on the processing card instead of marking it unavailable', async () => {
+  const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
+  const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
+  const loggedErrors: string[] = [];
+  let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    loggedErrors.push(args.map((value) => String(value)).join(' '));
+  };
+
+  try {
+    const transport = {
+      onEvent(handler) {
+        eventHandler = handler;
+      },
+      async sendMessage(message) {
+        sentMessages.push(message);
+      },
+      async sendCard(message) {
+        sentCards.push(message);
+        return { messageId: `card-${sentCards.length}` };
+      },
+      async updateCard(message) {
+        updatedCards.push(message);
+      },
+      async sendReaction(message) {
+        reactions.push(message);
+      },
+    } as LarkTransport;
+
+    const app = createBridgeApp({
+      config: loadConfig({}),
+      larkTransport: transport,
+      projectRegistry: {
+        async describeProject(projectInstanceId) {
+          return {
+            projectInstanceId,
+            configured: true,
+            active: false,
+            removed: false,
+            sessionCount: 1,
+          };
+        },
+        async getProjectDiagnostics(projectInstanceId) {
+          return {
+            projectInstanceId,
+            status: 'failed',
+            reason: 'Reconnecting... 2/5',
+            source: 'generateReply',
+          };
+        },
+        getProjectConfig(projectInstanceId) {
+          return {
+            projectInstanceId,
+            cwd: '/repo/project-a',
+            transport: 'stdio',
+            command: 'codex',
+            args: ['app-server'],
+          };
+        },
+      },
+    });
+
+    await app.bindingService.bindProjectToSession('project-a', 'session-a');
+    await app.start();
+    assert.ok(eventHandler);
+
+    await eventHandler!({
+      sessionId: 'session-a',
+      messageId: 'message-no-handler',
+      text: 'hello',
+      senderId: 'user-a',
+      timestamp: '2026-03-29T00:00:00.000Z',
+    });
+
+    assert.deepEqual(reactions, []);
+    assert.deepEqual(sentMessages, []);
+    assert.equal(sentCards.length, 1);
+    assert.equal(updatedCards.length, 0);
+    assert.equal(loggedErrors.length, 0);
+
+    await app.stop();
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
 test('reports unavailable bound projects without claiming the binding is missing', async () => {
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
   const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
