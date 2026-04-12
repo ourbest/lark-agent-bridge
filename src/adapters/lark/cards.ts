@@ -234,7 +234,6 @@ export function buildApprovalCard(input: {
     buildApprovalButton('approve', requestIdStr, '授权', true),
     buildApprovalButton('approve-all', requestIdStr, '授权所有'),
     buildApprovalButton('approve-auto', requestIdStr, '自动授权'),
-    buildApprovalButton('deny', requestIdStr, '拒绝'),
   ];
 
   const elements: Array<Record<string, unknown>> = [

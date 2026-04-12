@@ -117,7 +117,7 @@ function buildHelpLines(): string[] {
     '  //provider <id>     - switch the active provider',
     '  //new               - start a new codex thread for this chat',
     '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file as a card',
+    '  //read <path>       - read a project file and send it to chat',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //abort             - abort the current task',

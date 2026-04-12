@@ -30,6 +30,25 @@ function cardHasButton(card: { body?: { elements?: Array<{ tag?: string; columns
   return false;
 }
 
+function countButtons(card: { body?: { elements?: Array<{ tag?: string; columns?: Array<{ elements?: Array<{ tag?: string }> }> }> } }): number {
+  let count = 0;
+  for (const element of card.body?.elements ?? []) {
+    if (element.tag === 'button') {
+      count += 1;
+    }
+    if (element.tag === 'column_set') {
+      for (const column of element.columns ?? []) {
+        for (const colElement of column.elements ?? []) {
+          if (colElement.tag === 'button') {
+            count += 1;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
 test('renders inline code spans as feishu-safe card markdown', () => {
   const replyCard = JSON.parse(
     buildProjectReplyCard({
@@ -114,6 +133,7 @@ test('renders approval cards with buttons and compact footer content', () => {
   assert.equal(card.schema, '2.0');
   assert.equal(card.config?.wide_screen_mode, true);
   assert.ok(cardHasButton(card));
+  assert.equal(countButtons(card), 3);
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('Need approval')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('授权ID: 42')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('注: 自动授权有效期 1 小时')));

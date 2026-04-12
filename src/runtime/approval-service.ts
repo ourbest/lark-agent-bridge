@@ -142,7 +142,7 @@ function buildAnnouncementLines(request: PendingRequest): string[] {
     lines.push(`  reason: ${request.reason}`);
   }
 
-  lines.push('  actions: 授权 | 授权所有 | 自动授权 | 拒绝');
+  lines.push('  actions: 授权 | 授权所有 | 自动授权');
 
   return lines;
 }

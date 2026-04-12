@@ -25,6 +25,25 @@ function cardHasButton(card: { body?: { elements?: Array<{ tag?: string; content
   return false;
 }
 
+function countButtons(card: { body?: { elements?: Array<{ tag?: string; content?: string; columns?: Array<{ elements?: Array<{ tag?: string; value?: { requestId?: string } }> }> }> } }): number {
+  let count = 0;
+  for (const element of card.body?.elements ?? []) {
+    if (element.tag === 'button') {
+      count += 1;
+    }
+    if (element.tag === 'column_set') {
+      for (const column of element.columns ?? []) {
+        for (const colElement of column.elements ?? []) {
+          if (colElement.tag === 'button') {
+            count += 1;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
 function findButtonRequestId(card: { body?: { elements?: Array<{ tag?: string; content?: string; columns?: Array<{ elements?: Array<{ tag?: string; value?: { requestId?: string } }> }> }> } }): string | undefined {
   for (const element of card.body?.elements ?? []) {
     if (element.tag === 'button') return element.value?.requestId;
@@ -410,6 +429,7 @@ test('creates a test approval card for //approve-test and updates it when button
     };
   };
   assert.ok(cardHasButton(approvalCard));
+  assert.equal(countButtons(approvalCard), 3);
   const requestId = findButtonRequestId(approvalCard);
   assert.ok(requestId?.startsWith('approve-test-'));
   assert.ok(approvalCard.body?.elements?.some((element) => String(element.content).includes('授权ID: approve-test-')));
@@ -1145,7 +1165,7 @@ test('renders codex query command results as interactive cards', async () => {
   await app.stop();
 });
 
-test('renders //read file content as an interactive markdown card', async () => {
+test('renders //read file content directly in chat', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-read-'));
   const relativePath = 'src/example.ts';
   const absolutePath = join(tempDir, relativePath);
@@ -1153,7 +1173,6 @@ test('renders //read file content as an interactive markdown card', async () => 
   writeFileSync(absolutePath, 'export const answer = 42;\n', 'utf8');
 
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
-  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
@@ -1163,9 +1182,6 @@ test('renders //read file content as an interactive markdown card', async () => 
     },
     async sendMessage(message) {
       sentMessages.push(message);
-    },
-    async sendCard(message) {
-      sentCards.push(message);
     },
     async sendReaction(message) {
       reactions.push(message);
@@ -1209,18 +1225,12 @@ test('renders //read file content as an interactive markdown card', async () => 
     timestamp: '2026-03-29T00:00:00.000Z',
   });
 
-  assert.deepEqual(reactions, []);
-  assert.deepEqual(sentMessages, []);
-  assert.equal(sentCards.length, 1);
-  assert.match(sentCards[0]?.fallbackText ?? '', /export const answer = 42;/);
-
-  const card = JSON.parse(sentCards[0]?.card.content ?? '{}') as {
-    header?: { title?: { content?: string } };
-    body?: { elements?: Array<{ tag?: string; content?: string }> };
-  };
-  assert.equal(card.header?.title?.content, relativePath);
-  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('```ts')));
-  assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('export const answer = 42;')));
+    assert.deepEqual(reactions, []);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0]?.sessionId, 'session-a');
+    assert.match(sentMessages[0]?.text ?? '', /\[project-a\] src\/example\.ts/);
+    assert.match(sentMessages[0]?.text ?? '', /```ts/);
+    assert.match(sentMessages[0]?.text ?? '', /export const answer = 42;/);
 
   await app.stop();
   rmSync(tempDir, { recursive: true, force: true });
@@ -1236,7 +1246,6 @@ test('renders //read for a project with relative cwd configured', async () => {
   const previousCwd = process.cwd();
   process.chdir(repoRoot);
 
-  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
@@ -1246,9 +1255,6 @@ test('renders //read for a project with relative cwd configured', async () => {
     },
     async sendMessage(message) {
       sentMessages.push(message);
-    },
-    async sendCard(message) {
-      sentCards.push(message);
     },
     async sendReaction() {},
   };
@@ -1291,9 +1297,10 @@ test('renders //read for a project with relative cwd configured', async () => {
       timestamp: '2026-03-29T00:00:00.000Z',
     });
 
-    assert.deepEqual(sentMessages, []);
-    assert.equal(sentCards.length, 1);
-    assert.match(sentCards[0]?.fallbackText ?? '', /export const relative = true;/);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0]?.sessionId, 'session-a');
+    assert.match(sentMessages[0]?.text ?? '', /\[project-a\] src\/example\.ts/);
+    assert.match(sentMessages[0]?.text ?? '', /export const relative = true;/);
   } finally {
     await app.stop();
     process.chdir(previousCwd);
@@ -1310,7 +1317,6 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
   writeFileSync(join(outsideDir, 'secret.txt'), 'top secret\n', 'utf8');
   symlinkSync(join(outsideDir, 'secret.txt'), join(projectDir, 'secret-link.txt'));
 
-  const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
@@ -1320,9 +1326,6 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
     },
     async sendMessage(message) {
       sentMessages.push(message);
-    },
-    async sendCard(message) {
-      sentCards.push(message);
     },
     async sendReaction() {},
   };
@@ -1365,9 +1368,9 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
       timestamp: '2026-03-29T00:00:00.000Z',
     });
 
-    assert.deepEqual(sentMessages, []);
-    assert.equal(sentCards.length, 1);
-    assert.match(sentCards[0]?.fallbackText ?? '', /only supports files under the project cwd/);
+    assert.equal(sentMessages.length, 1);
+    assert.equal(sentMessages[0]?.sessionId, 'session-a');
+    assert.match(sentMessages[0]?.text ?? '', /only supports files under the project cwd/);
   } finally {
     await app.stop();
     rmSync(tempDir, { recursive: true, force: true });

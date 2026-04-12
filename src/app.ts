@@ -69,7 +69,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//new', description: 'Start a fresh Codex thread for this chat.' },
   { command: '//status', description: 'Show bridge and Codex session state.' },
   { command: '//abort', description: 'Abort the current task.' },
-  { command: '//read <path>', description: 'Read a project file as a Markdown card.' },
+  { command: '//read <path>', description: 'Read a project file and send it to chat.' },
   { command: '//model <model>', description: 'Set the active model for the bound project.' },
   { command: '//reload projects', description: 'Reload the projects.json file.' },
   { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
@@ -693,13 +693,9 @@ export function createBridgeApp(options: {
     const readCommand = parseReadCommand(text);
     if (readCommand !== null) {
       if (readCommand.kind === 'usage') {
-        await larkAdapter.sendCard({
+        await larkAdapter.send({
           targetSessionId: message.sessionId,
-          card: buildCommandResultCard({
-            title: 'read',
-            lines: ['Usage: //read <path>'],
-          }),
-          fallbackText: 'Usage: //read <path>',
+          text: 'Usage: //read <path>',
         });
         return;
       }
@@ -722,20 +718,9 @@ export function createBridgeApp(options: {
       const projectConfig = options.projectRegistry.getProjectConfig?.(projectId) ?? null;
       const configuredCwd = projectConfig?.cwd?.trim();
       if (configuredCwd === undefined || configuredCwd === '') {
-        await larkAdapter.sendCard({
+        await larkAdapter.send({
           targetSessionId: message.sessionId,
-          card: buildCommandResultCard({
-            title: 'read',
-            lines: ['[lark-agent-bridge] project cwd is not configured for //read'],
-            footerItems: buildProjectFooterItems(
-              projectId,
-              projectConfig,
-              options.projectRegistry.getActiveProvider === undefined
-                ? projectConfig?.activeProvider ?? null
-                : await options.projectRegistry.getActiveProvider(projectId),
-            ),
-          }),
-          fallbackText: '[lark-agent-bridge] project cwd is not configured for //read',
+          text: '[lark-agent-bridge] project cwd is not configured for //read',
         });
         return;
       }
@@ -747,20 +732,9 @@ export function createBridgeApp(options: {
         const canonicalPath = await realpath(requestedPath);
 
         if (!isPathWithinRoot(canonicalCwd, canonicalPath)) {
-          await larkAdapter.sendCard({
+          await larkAdapter.send({
             targetSessionId: message.sessionId,
-            card: buildCommandResultCard({
-              title: 'read',
-              lines: ['[lark-agent-bridge] //read only supports files under the project cwd'],
-              footerItems: buildProjectFooterItems(
-                projectId,
-                projectConfig,
-                options.projectRegistry.getActiveProvider === undefined
-                  ? projectConfig?.activeProvider ?? null
-                  : await options.projectRegistry.getActiveProvider(projectId),
-              ),
-            }),
-            fallbackText: '[lark-agent-bridge] //read only supports files under the project cwd',
+            text: '[lark-agent-bridge] //read only supports files under the project cwd',
           });
           return;
         }
@@ -769,39 +743,15 @@ export function createBridgeApp(options: {
         const fileContent = truncateFileContent(rawContent);
         const relativePath = path.relative(canonicalCwd, canonicalPath) || path.basename(canonicalPath);
         const bodyMarkdown = buildFileCardMarkdown(relativePath, fileContent.text);
-        const fallbackText = fileContent.truncated ? `${fileContent.text}` : rawContent;
-
-        await larkAdapter.sendCard({
+        await larkAdapter.send({
           targetSessionId: message.sessionId,
-          card: buildMarkdownContentCard({
-            title: relativePath,
-            subtitle: projectId,
-            bodyMarkdown,
-            footerItems: [
-              { label: 'Project', value: projectId },
-              { label: 'PATH', value: canonicalPath },
-              { label: 'Transport', value: projectConfig?.transport ?? 'n/a' },
-            ],
-            template: 'green',
-          }),
-          fallbackText,
+          text: `[${projectId}] ${relativePath}\n\n${bodyMarkdown}`,
         });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
-        await larkAdapter.sendCard({
+        await larkAdapter.send({
           targetSessionId: message.sessionId,
-          card: buildCommandResultCard({
-            title: 'read',
-            lines: [`[lark-agent-bridge] failed to read file: ${messageText}`],
-            footerItems: buildProjectFooterItems(
-              projectId,
-              projectConfig,
-              options.projectRegistry.getActiveProvider === undefined
-                ? projectConfig?.activeProvider ?? null
-                : await options.projectRegistry.getActiveProvider(projectId),
-            ),
-          }),
-          fallbackText: `[lark-agent-bridge] failed to read file: ${messageText}`,
+          text: `[lark-agent-bridge] failed to read file: ${messageText}`,
         });
       }
       return;

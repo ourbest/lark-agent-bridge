@@ -25,6 +25,25 @@ function cardHasButton(card: ReturnType<typeof parseCard>): boolean {
   return false;
 }
 
+function countButtons(card: ReturnType<typeof parseCard>): number {
+  let count = 0;
+  for (const element of card.body?.elements ?? []) {
+    if (element.tag === 'button') {
+      count += 1;
+    }
+    if (element.tag === 'column_set') {
+      for (const column of element.columns ?? []) {
+        for (const colElement of column.elements ?? []) {
+          if (colElement.tag === 'button') {
+            count += 1;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
 test('registers approval requests and renders action buttons', async () => {
   const responses: Array<{ requestId: number; result: unknown }> = [];
   const service = createApprovalService();
@@ -55,13 +74,14 @@ test('registers approval requests and renders action buttons', async () => {
     '  itemId: item-1',
     '  command: rm -rf /tmp/example',
     '  reason: needs approval',
-    '  actions: 授权 | 授权所有 | 自动授权 | 拒绝',
+    '  actions: 授权 | 授权所有 | 自动授权',
   ]);
   assert.equal(announcement.card.msg_type, 'interactive');
   const card = parseCard(announcement.card.content);
   assert.equal(card.header?.title?.content, 'Approval required');
   assert.equal(card.config?.wide_screen_mode, true);
   assert.ok(cardHasButton(card));
+  assert.equal(countButtons(card), 3);
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('**Request ID:** 99')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('**Command:**')));
   assert.ok(card.body?.elements?.some((element) => element.tag === 'markdown' && String(element.content).includes('授权ID: 99')));
@@ -126,11 +146,12 @@ test('denies permissions requests by returning an empty grant and action buttons
     '    network:',
     '      enabled: yes',
     '  reason: needs extra permissions',
-    '  actions: 授权 | 授权所有 | 自动授权 | 拒绝',
+    '  actions: 授权 | 授权所有 | 自动授权',
   ]);
   assert.equal(announcement.card.msg_type, 'interactive');
   const card = parseCard(announcement.card.content);
   assert.equal(cardHasButton(card), true);
+  assert.equal(countButtons(card), 3);
   assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Request ID:** perm-1')));
   assert.ok(card.body?.elements?.some((element) => String(element.content).includes('**Kind:**')));
 
