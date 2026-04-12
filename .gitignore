@@ -10,3 +10,5 @@ data/
 docs/
 projects.json
 .upload/
+*.pyc
+__pycache__/
