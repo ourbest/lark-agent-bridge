@@ -490,7 +490,7 @@ test('rejects bare codex commands without the // prefix', async () => {
     '  //provider <id>     - switch the active provider',
     '  //new               - start a new codex thread for this chat',
     '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file and send it to chat',
+    '  //read <path>       - read a project file and send it to chat as a file',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //abort             - abort the current task',
@@ -739,7 +739,7 @@ test('shows //read in help output', async () => {
     text: '//help',
   });
 
-  assert.ok(lines?.includes('  //read <path>       - read a project file and send it to chat'));
+  assert.ok(lines?.includes('  //read <path>       - read a project file and send it to chat as a file'));
 });
 
 test('routes prefixed codex commands through the executor when bound', async () => {
@@ -1451,7 +1451,7 @@ test('rejects unsupported codex commands before they reach the executor', async 
     '  //provider <id>     - switch the active provider',
     '  //new               - start a new codex thread for this chat',
     '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file and send it to chat',
+    '  //read <path>       - read a project file and send it to chat as a file',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //abort             - abort the current task',
@@ -1512,7 +1512,7 @@ test('returns an error for unknown // commands instead of falling through', asyn
     '  //provider <id>     - switch the active provider',
     '  //new               - start a new codex thread for this chat',
     '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file and send it to chat',
+    '  //read <path>       - read a project file and send it to chat as a file',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //abort             - abort the current task',

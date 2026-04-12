@@ -69,7 +69,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//new', description: 'Start a fresh Codex thread for this chat.' },
   { command: '//status', description: 'Show bridge and Codex session state.' },
   { command: '//abort', description: 'Abort the current task.' },
-  { command: '//read <path>', description: 'Read a project file and send it to chat.' },
+  { command: '//read <path>', description: 'Read a project file and send it to chat as a file.' },
   { command: '//model <model>', description: 'Set the active model for the bound project.' },
   { command: '//reload projects', description: 'Reload the projects.json file.' },
   { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
@@ -172,14 +172,6 @@ function inferFenceLanguage(filePath: string): string {
 
 function sanitizeCodeFence(content: string): string {
   return content.replaceAll('```', '``\\`');
-}
-
-function buildFileCardMarkdown(filePath: string, content: string): string {
-  if (filePath.toLowerCase().endsWith('.md')) {
-    return content;
-  }
-
-  return `\`\`\`${inferFenceLanguage(filePath)}\n${sanitizeCodeFence(content)}\n\`\`\``;
 }
 
 function truncateFileContent(content: string): { text: string; truncated: boolean } {
@@ -761,14 +753,24 @@ export function createBridgeApp(options: {
           return;
         }
 
-        const rawContent = await readFile(canonicalPath, 'utf8');
-        const fileContent = truncateFileContent(rawContent);
         const relativePath = path.relative(canonicalCwd, canonicalPath) || path.basename(canonicalPath);
-        const bodyMarkdown = buildFileCardMarkdown(relativePath, fileContent.text);
-        await larkAdapter.send({
-          targetSessionId: message.sessionId,
-          text: `[${projectId}] ${relativePath}\n\n${bodyMarkdown}`,
-        });
+        const fileName = path.basename(canonicalPath);
+
+        try {
+          await larkAdapter.sendFile({
+            targetSessionId: message.sessionId,
+            filePath: canonicalPath,
+            fileName,
+          });
+        } catch {
+          const rawContent = await readFile(canonicalPath, 'utf8');
+          const fileContent = truncateFileContent(rawContent);
+          await larkAdapter.send({
+            targetSessionId: message.sessionId,
+            format: 'text',
+            text: `[${projectId}] ${relativePath}\n\n${fileContent.text}`,
+          });
+        }
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         await larkAdapter.send({

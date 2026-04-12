@@ -3,6 +3,7 @@
   "version": "0.2.0-dev",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "test": "node --experimental-strip-types --test tests/all.test.ts",
     "dev": "node --experimental-strip-types src/main.ts",

@@ -23,11 +23,15 @@ test('resolves runtime config from environment overrides', () => {
 
 test('creates a local dev transport that can receive and send messages', async () => {
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentFiles: Array<{ sessionId: string; filePath: string; fileName: string; fallbackText?: string }> = [];
   const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string } }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
   const transport = createLocalDevLarkTransport({
     onSend(message) {
       sentMessages.push(message);
+    },
+    onSendFile(message) {
+      sentFiles.push(message);
     },
     onSendCard(message) {
       sentCards.push(message);
@@ -48,6 +52,12 @@ test('creates a local dev transport that can receive and send messages', async (
   await transport.sendMessage({
     sessionId: 'session-a',
     text: 'reply:hello',
+  });
+  await transport.sendFile({
+    sessionId: 'session-a',
+    filePath: '/tmp/example.txt',
+    fileName: 'example.txt',
+    fallbackText: 'fallback content',
   });
   await transport.sendCard({
     sessionId: 'session-a',
@@ -73,6 +83,14 @@ test('creates a local dev transport that can receive and send messages', async (
     {
       sessionId: 'session-a',
       text: 'reply:hello',
+    },
+  ]);
+  assert.deepEqual(sentFiles, [
+    {
+      sessionId: 'session-a',
+      filePath: '/tmp/example.txt',
+      fileName: 'example.txt',
+      fallbackText: 'fallback content',
     },
   ]);
   assert.deepEqual(sentCards, [

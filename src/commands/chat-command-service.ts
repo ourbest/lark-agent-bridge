@@ -117,7 +117,7 @@ function buildHelpLines(): string[] {
     '  //provider <id>     - switch the active provider',
     '  //new               - start a new codex thread for this chat',
     '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file and send it to chat',
+    '  //read <path>       - read a project file and send it to chat as a file',
     '  //model <model>     - set the project model',
     '  //restart           - restart the bridge process',
     '  //abort             - abort the current task',
@@ -654,7 +654,7 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             );
 
           case 'read':
-            return parsed.args.length === 0 ? ['Usage: //read <path>'] : ['[lark-agent-bridge] reading file...'];
+            return parsed.args.length === 0 ? ['Usage: //read <path>'] : ['[lark-agent-bridge] preparing file upload...'];
 
           case 'model': {
             if (parsed.args.length > 1) {

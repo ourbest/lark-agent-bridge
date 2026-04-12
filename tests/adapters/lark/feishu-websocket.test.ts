@@ -208,6 +208,45 @@ test('sends message via sendMessageFn with chat_id as receive_id', async () => {
   assert.equal(sentContent, JSON.stringify({ text: 'reply text' }));
 });
 
+test('sends files via sendFileFn with chat_id as receive_id', async () => {
+  registeredHandlers = {};
+  let sentTo: string | null = null;
+  let sentFilePath: string | null = null;
+  let sentFileName: string | null = null;
+
+  const mockSendFile = async (opts: {
+    receiveId: string;
+    filePath: string;
+    fileName: string;
+  }) => {
+    sentTo = opts.receiveId;
+    sentFilePath = opts.filePath;
+    sentFileName = opts.fileName;
+  };
+
+  const transport = createFeishuWebSocketTransport({
+    appId: 'cli_test',
+    appSecret: 'secret',
+    wsClient: mockWsClient as never,
+    eventDispatcher: mockEventDispatcher as never,
+    sendMessageFn: mockSendMessage as never,
+    sendFileFn: mockSendFile as never,
+    sendReactionFn: mockSendReaction as never,
+    onSendFile: () => {},
+  });
+
+  await transport.start();
+  await transport.sendFile({
+    sessionId: 'chat_abc',
+    filePath: '/tmp/example.txt',
+    fileName: 'example.txt',
+  });
+
+  assert.equal(sentTo, 'chat_abc');
+  assert.equal(sentFilePath, '/tmp/example.txt');
+  assert.equal(sentFileName, 'example.txt');
+});
+
 test('sends markdown messages as feishu post content', async () => {
   registeredHandlers = {};
   let sentMsgType: string | null = null;
@@ -248,6 +287,31 @@ test('sends markdown messages as feishu post content', async () => {
       },
     }),
   );
+});
+
+test('sends plain text when format is forced to text', async () => {
+  registeredHandlers = {};
+  let sentMsgType: string | null = null;
+  let sentContent: string | null = null;
+
+  const transport = createFeishuWebSocketTransport({
+    appId: 'cli_test',
+    appSecret: 'secret',
+    wsClient: mockWsClient as never,
+    eventDispatcher: mockEventDispatcher as never,
+    sendMessageFn: async (opts) => {
+      sentMsgType = opts.msgType;
+      sentContent = opts.content as string;
+    },
+    sendReactionFn: mockSendReaction as never,
+    onSend: () => {},
+  });
+
+  await transport.start();
+  await transport.sendMessage({ sessionId: 'chat_abc', text: '**title**', format: 'text' });
+
+  assert.equal(sentMsgType, 'text');
+  assert.equal(sentContent, JSON.stringify({ text: '**title**' }));
 });
 
 test('sends interactive cards through sendMessageFn', async () => {

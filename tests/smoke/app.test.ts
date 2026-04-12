@@ -59,7 +59,7 @@ function findButtonRequestId(card: { body?: { elements?: Array<{ tag?: string; c
 }
 
 test('boots the bridge runtime and forwards a routed reply back to lark', async () => {
-  const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentMessages: Array<{ sessionId: string; text: string; format?: 'auto' | 'text' }> = [];
   const sentCards: Array<{ sessionId: string; card: { msg_type: 'interactive'; content: string } }> = [];
   const updatedCards: Array<{ messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
@@ -1273,7 +1273,7 @@ test('renders codex query command results as interactive cards', async () => {
   await app.stop();
 });
 
-test('renders //read file content directly in chat', async () => {
+test('sends //read results as a file attachment when upload succeeds', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'lark-agent-bridge-read-'));
   const relativePath = 'src/example.ts';
   const absolutePath = join(tempDir, relativePath);
@@ -1281,6 +1281,7 @@ test('renders //read file content directly in chat', async () => {
   writeFileSync(absolutePath, 'export const answer = 42;\n', 'utf8');
 
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentFiles: Array<{ sessionId: string; filePath: string; fileName: string }> = [];
   const reactions: Array<{ targetMessageId: string; emojiType: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
@@ -1290,6 +1291,9 @@ test('renders //read file content directly in chat', async () => {
     },
     async sendMessage(message) {
       sentMessages.push(message);
+    },
+    async sendFile(message) {
+      sentFiles.push(message);
     },
     async sendReaction(message) {
       reactions.push(message);
@@ -1333,12 +1337,12 @@ test('renders //read file content directly in chat', async () => {
     timestamp: '2026-03-29T00:00:00.000Z',
   });
 
-    assert.deepEqual(reactions, []);
-    assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0]?.sessionId, 'session-a');
-    assert.match(sentMessages[0]?.text ?? '', /\[project-a\] src\/example\.ts/);
-    assert.match(sentMessages[0]?.text ?? '', /```ts/);
-    assert.match(sentMessages[0]?.text ?? '', /export const answer = 42;/);
+  assert.deepEqual(reactions, []);
+  assert.deepEqual(sentMessages, []);
+  assert.equal(sentFiles.length, 1);
+  assert.equal(sentFiles[0]?.sessionId, 'session-a');
+  assert.equal(sentFiles[0]?.filePath, absolutePath);
+  assert.equal(sentFiles[0]?.fileName, 'example.ts');
 
   await app.stop();
   rmSync(tempDir, { recursive: true, force: true });
@@ -1355,6 +1359,7 @@ test('renders //read for a project with relative cwd configured', async () => {
   process.chdir(repoRoot);
 
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentFiles: Array<{ sessionId: string; filePath: string; fileName: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
   const transport: LarkTransport = {
@@ -1363,6 +1368,9 @@ test('renders //read for a project with relative cwd configured', async () => {
     },
     async sendMessage(message) {
       sentMessages.push(message);
+    },
+    async sendFile(message) {
+      sentFiles.push(message);
     },
     async sendReaction() {},
   };
@@ -1405,10 +1413,11 @@ test('renders //read for a project with relative cwd configured', async () => {
       timestamp: '2026-03-29T00:00:00.000Z',
     });
 
-    assert.equal(sentMessages.length, 1);
-    assert.equal(sentMessages[0]?.sessionId, 'session-a');
-    assert.match(sentMessages[0]?.text ?? '', /\[project-a\] src\/example\.ts/);
-    assert.match(sentMessages[0]?.text ?? '', /export const relative = true;/);
+    assert.deepEqual(sentMessages, []);
+    assert.equal(sentFiles.length, 1);
+    assert.equal(sentFiles[0]?.sessionId, 'session-a');
+    assert.equal(sentFiles[0]?.filePath, join(projectDir, 'src/example.ts'));
+    assert.equal(sentFiles[0]?.fileName, 'example.ts');
   } finally {
     await app.stop();
     process.chdir(previousCwd);
@@ -1426,6 +1435,7 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
   symlinkSync(join(outsideDir, 'secret.txt'), join(projectDir, 'secret-link.txt'));
 
   const sentMessages: Array<{ sessionId: string; text: string }> = [];
+  const sentFiles: Array<{ sessionId: string; filePath: string; fileName: string }> = [];
   let eventHandler: ((event: LarkEventPayload) => Promise<void> | void) | null = null;
 
   const transport: LarkTransport = {
@@ -1434,6 +1444,9 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
     },
     async sendMessage(message) {
       sentMessages.push(message);
+    },
+    async sendFile(message) {
+      sentFiles.push(message);
     },
     async sendReaction() {},
   };
@@ -1477,6 +1490,7 @@ test('rejects //read when a symlink resolves outside the project cwd', async () 
     });
 
     assert.equal(sentMessages.length, 1);
+    assert.equal(sentFiles.length, 0);
     assert.equal(sentMessages[0]?.sessionId, 'session-a');
     assert.match(sentMessages[0]?.text ?? '', /only supports files under the project cwd/);
   } finally {

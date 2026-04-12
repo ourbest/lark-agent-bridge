@@ -25,6 +25,11 @@ export interface FeishuWebSocketTransportOptions {
     msgType: string;
     content: string | object;
   }) => Promise<{ messageId?: string } | void>;
+  sendFileFn?: (opts: {
+    receiveId: string;
+    filePath: string;
+    fileName: string;
+  }) => Promise<{ messageId?: string } | void>;
   updateMessageFn?: (opts: {
     sessionId: string;
     messageId: string;
@@ -36,7 +41,8 @@ export interface FeishuWebSocketTransportOptions {
     emojiType: string;
   }) => Promise<void>;
   onStderr?: (text: string) => void;
-  onSend?: (message: { sessionId: string; text: string }) => void;
+  onSend?: (message: { sessionId: string; text: string; format?: 'auto' | 'text' }) => void;
+  onSendFile?: (message: { sessionId: string; filePath: string; fileName: string; fallbackText?: string }) => void;
   onSendCard?: (message: { sessionId: string; card: FeishuInteractiveCardMessage; fallbackText?: string }) => void;
   onReact?: (message: { targetMessageId: string; emojiType: string }) => void;
 }
@@ -312,7 +318,12 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
           };
           try {
             options.onSend?.(message);
-            payload = isMarkdown(message.text)
+            payload = message.format === 'text'
+              ? {
+                  msg_type: 'text',
+                  content: JSON.stringify({ text: message.text }),
+                }
+              : isMarkdown(message.text)
               ? buildFeishuPostMessage(message.text)
               : {
                   msg_type: 'text',
@@ -329,6 +340,29 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
           } catch (error) {
             logTransportError(`send ${payload.msg_type}`, message.sessionId, error);
             resolve(undefined);
+          }
+        });
+      });
+    },
+    async sendFile(message) {
+      if (options.sendFileFn === undefined) {
+        throw new Error('File sending is not configured');
+      }
+
+      return await new Promise<{ messageId?: string } | void>((resolve, reject) => {
+        enqueueMessage(message.sessionId, async () => {
+          try {
+            options.onSendFile?.(message);
+            console.log(`[feishu] sending file, session=${message.sessionId}, filePath=${message.filePath}, fileName=${message.fileName}`);
+            const result = await options.sendFileFn!({
+              receiveId: message.sessionId,
+              filePath: message.filePath,
+              fileName: message.fileName,
+            });
+            resolve(result);
+          } catch (error) {
+            logTransportError('send file', message.sessionId, error);
+            reject(error);
           }
         });
       });

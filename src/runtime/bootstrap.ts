@@ -54,7 +54,8 @@ export function resolveProjectsRootPath(env: RuntimeEnv = process.env): string |
 }
 
 export function createLocalDevLarkTransport(options?: {
-  onSend?: (message: { sessionId: string; text: string }) => void;
+  onSend?: (message: { sessionId: string; text: string; format?: 'auto' | 'text' }) => void;
+  onSendFile?: (message: { sessionId: string; filePath: string; fileName: string; fallbackText?: string }) => void;
   onSendCard?: (message: { sessionId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }) => void;
   onUpdateCard?: (message: { sessionId: string; messageId: string; card: { msg_type: 'interactive'; content: string }; fallbackText?: string }) => void;
   onReact?: (message: { targetMessageId: string; emojiType: string }) => void;
@@ -71,6 +72,10 @@ export function createLocalDevLarkTransport(options?: {
     async sendMessage(message) {
       options?.onSend?.(message);
       return { messageId: `local-msg-${nextMessageId++}` };
+    },
+    async sendFile(message) {
+      options?.onSendFile?.(message);
+      return { messageId: `local-file-${nextMessageId++}` };
     },
     async sendCard(message) {
       options?.onSendCard?.({

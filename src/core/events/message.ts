@@ -34,6 +34,7 @@ export interface InboundMessage {
 export interface OutboundMessage {
   targetSessionId: string;
   text: string;
+  format?: 'auto' | 'text';
 }
 
 export interface OutboundReaction {

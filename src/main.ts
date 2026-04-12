@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import https from 'node:https';
 import 'dotenv/config';
@@ -970,6 +971,35 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
         messageId: response.data?.message_id,
       };
     },
+    sendFileFn: async ({ receiveId, filePath, fileName }) => {
+      const uploadResponse = await restClient.im.v1.file.create({
+        data: {
+          file_type: 'stream',
+          file_name: fileName,
+          file: createReadStream(filePath),
+        },
+      });
+
+      const fileKey = uploadResponse?.file_key;
+      if (fileKey === undefined || fileKey === '') {
+        throw new Error('Feishu file upload did not return a file_key');
+      }
+
+      const response = await restClient.im.v1.message.create({
+        data: {
+          receive_id: receiveId,
+          msg_type: 'file',
+          content: JSON.stringify({ file_key: fileKey }),
+        },
+        params: {
+          receive_id_type: 'chat_id',
+        },
+      });
+
+      return {
+        messageId: response.data?.message_id,
+      };
+    },
     updateMessageFn: async ({ sessionId, messageId, content }) => {
       void sessionId;
       await patchFeishuMessageCard(restClient, {
@@ -991,6 +1021,7 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
     },
     onStderr: (text) => process.stderr.write(text),
     onSend: (message) => console.log(`[lark-agent-bridge] outbound -> ${message.sessionId}: ${message.text}`),
+    onSendFile: (message) => console.log(`[lark-agent-bridge] outbound file -> ${message.sessionId}: ${message.fileName}`),
     onReact: (message) => console.log(`[lark-agent-bridge] reaction -> ${message.targetMessageId}: ${message.emojiType}`),
   });
 

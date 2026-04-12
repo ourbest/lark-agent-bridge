@@ -1,34 +1,43 @@
 # lark-agent-bridge
 
-Bridge service connecting Codex project instances to Feishu/Lark chat sessions. Send messages to a chat, and the bound Codex project responds.
+`lark-agent-bridge` is a bridge service that connects Codex project instances to Feishu/Lark chat sessions.
 
-`lark-agent-bridge` connects one Feishu/Lark chat session to one Codex project instance at a time. It supports project auto-discovery, lazy Codex connection startup, and switching between multiple providers per project.
+It keeps a one-to-one binding between a `projectInstanceId` and a chat session, routes inbound messages to the bound Codex project, and sends replies back to the same chat. The bridge also supports lazy project startup, multiple providers per project, and a local development mode that does not require Feishu.
 
-## Prerequisites
+## What It Does
 
-- **Node.js 24**
-- **codex CLI** (if running Codex app-server projects locally)
-- **Qwen Code + `@qwen-code/sdk`** (if running Qwen-backed projects locally)
-- **pm2** (optional, for production deployment with `//restart` support)
-- **Feishu bot app** (if using Feishu transport)
+- Bind one chat session to one project at a time
+- Route messages from Feishu/Lark to the bound project
+- Send project replies back to the same chat
+- Start Codex provider connections lazily on first use
+- Release provider connections when no chats are bound
+- Support multiple providers per project, including switching the active provider
+- Read project files with `//read` and send them as a file when the Feishu file upload permission is available, with text fallback if upload fails
+- Expose a small HTTP API for binding management
 
-## Quick Start
+## Requirements
 
-### 1. Install dependencies
+- Node.js 24
+- `codex` CLI for local Codex app-server projects
+- `@qwen-code/sdk` and a local Qwen binary if you use Qwen-backed projects
+- Feishu bot app credentials if you want to connect to Feishu
+- `pm2` if you want process management and `//restart` support in production
+
+## Install
 
 ```bash
 npm install
 ```
 
-### 2. Configure projects
+## Configure Projects
 
-Copy the example config and edit:
+Copy the example config and edit it:
 
 ```bash
 cp projects.json.example projects.json
 ```
 
-Edit `projects.json` with your project paths:
+Example:
 
 ```json
 {
@@ -51,9 +60,9 @@ Edit `projects.json` with your project paths:
 
 If `providers` is omitted or set to `[]`, the bridge uses the default provider list: `codex`, `cc`, and `qwen`.
 
-### OpenCode projects
+### OpenCode Projects
 
-If you want to bind a Feishu chat to **OpenCode** and run one `opencode serve` per repo, configure:
+If you want to bind a Feishu chat to an OpenCode-backed project, configure it like this:
 
 ```json
 {
@@ -68,9 +77,19 @@ If you want to bind a Feishu chat to **OpenCode** and run one `opencode serve` p
 }
 ```
 
-### 3. Configure Feishu (optional)
+## Run
 
-Create a `.env` file for Feishu WebSocket transport:
+### Local development mode
+
+If Feishu is not configured, the bridge runs in local development mode. Messages are written to stdout instead of being sent to Feishu.
+
+```bash
+npm run dev
+```
+
+### Feishu WebSocket mode
+
+Set Feishu credentials and enable the Feishu WebSocket transport:
 
 ```bash
 FEISHU_APP_ID=your_app_id
@@ -78,46 +97,37 @@ FEISHU_APP_SECRET=your_app_secret
 BRIDGE_FEISHU_WS_ENABLED=1
 ```
 
-If `BRIDGE_FEISHU_WS_ENABLED` is not set, the bridge runs in local dev mode - messages are logged to stdout instead of sent to Feishu.
-
-### 4. Start the bridge
+Then start the bridge:
 
 ```bash
 npm start
 ```
 
-The bridge listens on `http://127.0.0.1:3000` and stores bindings in `./data/bridge.json`.
+The bridge listens on `http://127.0.0.1:3000` by default and stores bindings in `./data/bridge.json`.
 
-## Project Configuration
+### Production with pm2
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `projectInstanceId` | Yes | Unique identifier for the project |
-| `cwd` | Yes | Working directory for the project |
-| `providers` | No | Provider list; omit or set `[]` to use the default `codex` / `cc` / `qwen` list |
-| `providers[].provider` | Yes | `codex`, `cc`, or `qwen` |
-| `providers[].transport` | No | `stdio` or `websocket` (defaults to `stdio`; Codex defaults to `stdio`) |
-| `providers[].port` | No | WebSocket port; if omitted, the bridge picks one automatically |
-| `opencodeHostname` | No | OpenCode server hostname (default `127.0.0.1`) |
-| `opencodePort` | No | OpenCode server port (recommended to set per repo) |
-| `opencodeCommand` | No | OpenCode executable (default `opencode`) |
-| `opencodeExtraArgs` | No | Extra args for `opencode serve` (array of strings) |
-| `opencodeUsername` | No | HTTP basic auth username (optional) |
-| `opencodePassword` | No | HTTP basic auth password (optional) |
+```bash
+pm2 start ecosystem.config.cjs
+pm2 logs lark-agent-bridge
+pm2 save
+```
 
-## Provider Behavior
+Useful lifecycle commands:
 
-- The default provider order is `codex`, `cc`, then `qwen`
-- `//providers` shows the providers available for the currently bound project
-- `//provider <name>` switches the active provider for the current project
-- Switching providers does not automatically stop inactive providers
-- If an inactive provider is already running, the bridge reuses it when you switch back
-- If an inactive provider has never started, the bridge does not start it proactively
-- `websocket` providers can omit `port`; the bridge will choose an available port automatically
+```bash
+pm2 restart lark-agent-bridge
+pm2 stop lark-agent-bridge
+pm2 delete lark-agent-bridge
+```
 
-## Bridge Commands
+The `//restart` command exits with code `0`, and `pm2` can restart the process automatically.
 
-In a bound Feishu chat, use these commands:
+## Chat Commands
+
+Commands are sent in Feishu/Lark chat with the `//` prefix.
+
+### Bridge Commands
 
 | Command | Description |
 |---------|-------------|
@@ -126,32 +136,28 @@ In a bound Feishu chat, use these commands:
 | `//list` | Show current binding |
 | `//projects` | List all visible projects |
 | `//providers` | List providers for the bound project |
-| `//provider <name>` | Switch the active provider for the bound project |
+| `//provider <name>` | Switch the active provider |
 | `//status` | Show bridge and Codex state |
 | `//sessions` | Alias for `//status` |
-| `//read <path>` | Read a file from the project's `cwd` |
-| `//restart` | Restart the bridge (pm2 only) |
+| `//read <path>` | Read a file from the project cwd and send it to chat |
+| `//restart` | Restart the bridge process |
 | `//reload projects` | Reload `projects.json` |
 | `//resume <threadId\|last>` | Resume a Codex thread |
-| `//new` | Start a fresh Codex thread for this chat |
+| `//new` | Start a fresh Codex thread |
 | `//model <name>` | Update the bound project's model |
 | `//help` | Show help |
 
-## Approval Commands
-
-Use these commands while the bridge is waiting for approval:
+### Approval Commands
 
 | Command | Description |
 |---------|-------------|
-| `//approvals` | List pending approval requests for this chat |
+| `//approvals` | List pending approval requests |
 | `//approve <id>` | Approve one request |
-| `//approve-all <id>` | Approve one request and remember it for this session |
+| `//approve-all <id>` | Approve one request for the session |
 | `//approve-auto <minutes>` | Auto-approve approval requests in this chat for N minutes |
 | `//deny <id>` | Deny one request |
 
-## Codex Commands
-
-These commands are forwarded to the bound Codex project:
+### Codex Commands
 
 | Command | Description |
 |---------|-------------|
@@ -165,19 +171,13 @@ These commands are forwarded to the bound Codex project:
 | `//review --commit <sha>` | Review a specific commit |
 | `//review <instructions>` | Review with custom instructions |
 
-These commands render as cards when sent with the `//` prefix. Bare commands without `//` are rejected.
-
-```
-//app/list
-//session/list
-//thread/list
-//thread/read <id>
-//review
-```
+Bare commands without `//` are rejected.
 
 ## HTTP API
 
-```
+The bridge exposes a small HTTP API on port `3000` by default.
+
+```text
 POST   /bindings                    # Create binding
 GET    /bindings/project/:id        # Lookup session by project
 GET    /bindings/session/:id        # Lookup project by session
@@ -194,25 +194,39 @@ curl -X POST http://127.0.0.1:3000/bindings \
   -d '{"projectInstanceId":"my-project","sessionId":"chat-id-from-feishu"}'
 ```
 
-## Production Deployment with pm2
+## Development
+
+### Run tests
 
 ```bash
-pm2 start ecosystem.config.cjs
-pm2 logs lark-agent-bridge
-pm2 save
+npm test
 ```
 
-Lifecycle commands:
+### Run one test file
+
+Node 24 supports native test file globs:
 
 ```bash
-pm2 restart lark-agent-bridge
-pm2 stop lark-agent-bridge
-pm2 delete lark-agent-bridge
+node --experimental-strip-types --test tests/core/binding/binding-service.test.ts
 ```
 
-The `//restart` command exits with code 0, and pm2 automatically starts a fresh process.
+### Run the bridge directly
 
-## Environment Variables
+```bash
+node --experimental-strip-types src/main.ts
+```
+
+### Development entry points
+
+- `npm run dev` starts the bridge in development mode
+- `npm start` starts the bridge in production mode
+- `src/main.ts` is the main runtime entry point
+- `src/app.ts` wires the bridge runtime
+- `src/runtime/bootstrap.ts` resolves runtime config and local dev transport
+- `src/adapters/lark/feishu-websocket.ts` contains the Feishu WebSocket transport
+- `src/runtime/project-registry.ts` manages lazy project connections
+
+## Configuration
 
 ### Bridge server
 
@@ -232,6 +246,7 @@ The `//restart` command exits with code 0, and pm2 automatically starts a fresh 
 | `FEISHU_APP_ID` | Feishu application App ID |
 | `FEISHU_APP_SECRET` | Feishu application App Secret |
 | `BRIDGE_FEISHU_WS_ENABLED` | Set to `1` to enable Feishu WebSocket transport |
+| `BRIDGE_STARTUP_NOTIFY_OPENID` | Optional open ID used for startup notifications |
 
 ### Codex project override
 
@@ -246,7 +261,8 @@ For single-project console mode:
 
 ## Notes
 
-- Each chat can only be bound to **one** project at a time
-- Codex connections are established **lazily** when a chat first binds to a project
-- Connections are released when **all** bound chats are unbound
-- Internal plan documents are excluded from git (see `docs/` in `.gitignore`)
+- Each chat can only be bound to one project at a time
+- Codex connections are established lazily when a chat first binds to a project
+- Connections are released when all bound chats are unbound
+- `//read` tries to upload a file to Feishu first, then falls back to text if file upload is unavailable
+

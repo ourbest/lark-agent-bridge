@@ -24,7 +24,8 @@ export interface LarkSendResult {
 
 export interface LarkTransport {
   onEvent(handler: (event: LarkEventPayload) => void | Promise<void>): void;
-  sendMessage(message: { sessionId: string; text: string }): Promise<LarkSendResult | void>;
+  sendMessage(message: { sessionId: string; text: string; format?: 'auto' | 'text' }): Promise<LarkSendResult | void>;
+  sendFile?(message: { sessionId: string; filePath: string; fileName: string; fallbackText?: string }): Promise<LarkSendResult | void>;
   sendCard?(message: { sessionId: string; card: FeishuInteractiveCardMessage; fallbackText?: string }): Promise<LarkSendResult | void>;
   updateCard?(message: { sessionId: string; messageId: string; card: FeishuInteractiveCardMessage; fallbackText?: string }): Promise<void>;
   sendReaction(message: OutboundReaction): Promise<void>;
@@ -99,11 +100,36 @@ export class LarkAdapter {
   }
 
   async send(message: OutboundMessage): Promise<LarkSendResult | void> {
-    const result = await this.transport.sendMessage({
+    const payload = {
       sessionId: message.targetSessionId,
       text: message.text,
-    });
+      ...(message.format === undefined ? {} : { format: message.format }),
+    };
+    const result = await this.transport.sendMessage(payload);
     return normalizeSendResult(result);
+  }
+
+  async sendFile(message: { targetSessionId: string; filePath: string; fileName: string; fallbackText?: string }): Promise<LarkSendResult | void> {
+    if (this.transport.sendFile !== undefined) {
+      const result = await this.transport.sendFile({
+        sessionId: message.targetSessionId,
+        filePath: message.filePath,
+        fileName: message.fileName,
+        fallbackText: message.fallbackText,
+      });
+      return normalizeSendResult(result);
+    }
+
+    if (message.fallbackText !== undefined) {
+      const result = await this.transport.sendMessage({
+        sessionId: message.targetSessionId,
+        text: message.fallbackText,
+        format: 'text',
+      });
+      return normalizeSendResult(result);
+    }
+
+    throw new Error('File sending is not supported by this transport');
   }
 
   async sendCard(message: { targetSessionId: string; card: FeishuInteractiveCardMessage; fallbackText?: string }): Promise<LarkSendResult | void> {
