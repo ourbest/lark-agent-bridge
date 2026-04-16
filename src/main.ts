@@ -612,7 +612,7 @@ export async function run(): Promise<void> {
           });
         }
 
-        if (provider.kind === 'codex' || provider.kind === 'cc') {
+        if (provider.kind === 'codex') {
           return new CodexAppServerClient({
             command,
             args,
@@ -622,6 +622,14 @@ export async function run(): Promise<void> {
             serviceName,
             transport: providerTransport === 'ssh+stdio' ? 'websocket' : providerTransport,
             websocketUrl,
+          });
+        }
+
+        if (provider.kind === 'cc') {
+          return new ClaudeCodeClient({
+            command,
+            args: ['--output-format', 'stream-json', '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio'],
+            cwd: providerCwd,
           });
         }
 
