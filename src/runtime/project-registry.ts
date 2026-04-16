@@ -1,4 +1,4 @@
-import type { CodexProjectClient } from './codex-project.ts';
+import type { CodexProjectClient, SystemInitData } from './codex-project.ts';
 import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts';
 import type { BridgeRouter } from '../core/router/router.ts';
 import type { BridgeStateStore } from '../storage/binding-store.ts';
@@ -57,6 +57,7 @@ export interface ProjectRegistryOptions {
     request: CodexServerRequest;
     respond: (result: unknown) => Promise<void>;
   }) => Promise<void>;
+  onSystemInit?: (projectInstanceId: string, data: SystemInitData) => void;
   getLastThread?: (projectInstanceId: string, sessionId: string) => string | null;
   setLastThread?: (projectInstanceId: string, sessionId: string, threadId: string) => void;
 }
@@ -313,6 +314,16 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
+  function attachSystemInitHandler(projectId: string, client: CodexProjectClient): void {
+    if (options.onSystemInit === undefined) {
+      return;
+    }
+
+    client.onSystemInit = (data) => {
+      options.onSystemInit?.(projectId, data);
+    };
+  }
+
   async function runProjectReply(
     projectId: string,
     entry: { client: CodexProjectClient; providerManager: ProviderManager; bindingCount: number; sessions: Set<string>; config: ProjectConfig; currentTaskController: AbortController | null },
@@ -373,6 +384,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
         attachStatusHandler(projectId, client);
         attachTextDeltaHandler(projectId, client);
         attachThreadChangedHandler(projectId, client);
+        attachSystemInitHandler(projectId, client);
       },
     });
     const client = providerManager.getClient();

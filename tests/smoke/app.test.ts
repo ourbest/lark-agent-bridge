@@ -839,13 +839,14 @@ test('updates the in-flight status card with streamed reply text and activity su
   assert.equal(updatedCards.length, 2);
 
   const progressCard = JSON.parse(updatedCards[1]?.card.content ?? '{}') as {
-    header?: { subtitle?: { content?: string } };
+    header?: { subtitle?: { content?: string }; title?: { content?: string } };
     body?: { elements?: Array<{ tag?: string; content?: string }> };
   };
+  // buildAgentStatusCard shows agent state (rate, cwd/model/session, git) in body
+  // streaming content goes to fallbackText
   assert.equal(progressCard.header?.subtitle?.content, '处理中');
-  assert.ok(progressCard.body?.elements?.some((element) => String(element.content).includes('正在处理消息：')));
-  assert.ok(progressCard.body?.elements?.some((element) => String(element.content).includes('Running command: npm test')));
-  assert.ok(progressCard.body?.elements?.some((element) => String(element.content).includes('当前回复：')));
+  assert.match(updatedCards[1]?.fallbackText ?? '', /正在处理消息：/);
+  assert.match(updatedCards[1]?.fallbackText ?? '', /Running command: npm test/);
   assert.match(updatedCards[1]?.fallbackText ?? '', /当前回复/);
 
   const completedCard = JSON.parse(sentCards.at(-1)?.card.content ?? '{}') as {

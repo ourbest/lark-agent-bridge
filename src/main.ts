@@ -20,6 +20,7 @@ import { QwenCodeClient } from './adapters/qwen-code/index.ts';
 import { OpencodeClient } from './adapters/opencode/index.ts';
 import { resolveConsoleRuntimeConfig, runCodexConsoleSession } from './runtime/codex-console.ts';
 import { createProjectRegistry } from './runtime/project-registry.ts';
+import { AgentStatusManager } from './runtime/agent-status.ts';
 import type { ProviderDescriptor } from './runtime/provider-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
 import { createProjectManagementService } from './runtime/project-management-service.ts';
@@ -254,6 +255,7 @@ export async function run(): Promise<void> {
   const funasrRuntime = resolveFunasrRuntimeConfig();
   const approvalService = createApprovalService();
   const bridgeStore = new JsonBindingStore(storagePath);
+  const agentStatusManager = new AgentStatusManager();
   let projectRegistryImpl: ReturnType<typeof createProjectRegistry> | null = null;
   let projectConfigWatcher: ReturnType<typeof createProjectConfigWatcher> | null = null;
   let projectManagementService: ReturnType<typeof createProjectManagementService> | null = null;
@@ -287,6 +289,7 @@ export async function run(): Promise<void> {
     bindingStore: bridgeStore,
     larkChatInfoService,
     approvalService,
+    agentStatusManager,
     downloadFile: downloadFile ?? undefined,
     transcribeAudio: funasrTranscriber === undefined
       ? undefined
@@ -551,6 +554,9 @@ export async function run(): Promise<void> {
 
   projectRegistryImpl = createProjectRegistry({
     bridgeStateStore: bridgeStore,
+    onSystemInit: (projectInstanceId, data) => {
+      agentStatusManager.updateFromSystemInit(projectInstanceId, data);
+    },
     getProjectConfig: (projectInstanceId: string) => {
       const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
       if (!entry) return null;

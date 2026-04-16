@@ -2,6 +2,13 @@ import type { InboundMessage, ProjectReply } from '../core/events/message.ts';
 import type { BridgeRouter } from '../core/router/router.ts';
 import type { CodexServerRequest } from '../adapters/codex/app-server-client.ts';
 
+export interface SystemInitData {
+  model: string;
+  sessionId: string;
+  cwd: string;
+  permissionMode: string;
+}
+
 export interface CodexProjectClient {
   generateReply(input: { text: string; cwd?: string }): Promise<string>;
   startThread?(input: { cwd?: string; force?: boolean }): Promise<string>;
@@ -18,6 +25,7 @@ export interface CodexProjectClient {
   stop(): Promise<void>;
   onTextDelta?: ((text: string) => void) | null;
   onTurnCompleted?: (() => void) | null;
+  onSystemInit?: ((data: SystemInitData) => void) | null;
 }
 
 export interface CodexProjectSessionOptions {

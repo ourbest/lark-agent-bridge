@@ -29,6 +29,7 @@ import {
   buildFileReceivedCard,
   buildAgentStatusCard,
   type CardFooterItem,
+  type FeishuInteractiveCardMessage,
 } from './adapters/lark/cards.ts';
 import { saveMessageAttachments, type FileUploadResult } from './services/file-upload-service.ts';
 import type { InboundAttachment } from './core/events/message.ts';
@@ -399,6 +400,7 @@ export function createBridgeApp(options: {
   /** 下载飞书消息附件的函数 */
   downloadFile?: (opts: { messageId: string; fileKey: string; type: 'image' | 'file' | 'audio' }) => Promise<{ buffer: Buffer; fileName: string; mimeType: string; fileSize: number }>;
   transcribeAudio?: (input: { filePath: string; fileName: string; messageId: string; sessionId: string }) => Promise<string>;
+  agentStatusManager?: AgentStatusManager;
   projectRegistry: {
     describeProject(projectInstanceId: string): Promise<ProjectState>;
     getProjectDiagnostics?(projectInstanceId: string): Promise<ProjectDiagnostics | null>;
@@ -470,7 +472,7 @@ export function createBridgeApp(options: {
     executeStructuredCodexCommand: options.executeStructuredCodexCommand,
   });
   const activeStatusCards = new Map<string, ActiveStatusCard>();
-  const agentStatusManager = new AgentStatusManager();
+  const agentStatusManager = options.agentStatusManager ?? new AgentStatusManager();
 
   function setActiveStatusCard(input: ActiveStatusCard): void {
     activeStatusCards.set(input.sessionId, input);
@@ -509,32 +511,57 @@ export function createBridgeApp(options: {
       entry.latestSummary = input.reason;
     }
 
-    const presentation = input.status === 'working'
-      ? {
-          card: buildBridgeStatusCard({
-            projectTitle: entry.projectTitle,
-            statusLabel: '处理中',
-            bodyMarkdown: buildInFlightStatusMarkdown({
-              requestText: entry.requestText,
-              streamedReply: entry.streamedReply,
-              latestSummary: entry.latestSummary,
-            }),
-            footerItems: entry.footerItems,
-            template: 'blue',
-          }),
-          fallbackText: buildInFlightStatusMarkdown({
-            requestText: entry.requestText,
-            streamedReply: entry.streamedReply,
-            latestSummary: entry.latestSummary,
-          }),
-        }
-      : buildRealtimeStatusPresentation({
-          projectTitle: entry.projectTitle,
-          status: input.status,
-          reason: input.reason,
-          completedMarkdown: input.status === 'done' ? entry.streamedReply : null,
+    let presentation: { card: FeishuInteractiveCardMessage; fallbackText: string };
+    if (input.status === 'working') {
+      // Get agent status
+      const agentStatus = agentStatusManager.getStatus(input.projectId);
+
+      // Get rate limit info
+      let rateBar = '[????????????????????]';
+      let ratePercent = 0;
+      try {
+        const statusLines = await (options.codexStatusProvider ?? readCodexStatusLines)();
+        // Primary limit is typically line 6 (0-indexed: 5)
+        const primaryLimitLine = statusLines[5] ?? '';
+        const barMatch = primaryLimitLine.match(/\[█+░*\]/);
+        const percentMatch = primaryLimitLine.match(/(\d+)%/);
+        if (barMatch) rateBar = barMatch[0];
+        if (percentMatch) ratePercent = parseInt(percentMatch[1], 10);
+      } catch {
+        // Use defaults
+      }
+
+      presentation = {
+        card: buildAgentStatusCard({
+          projectId: input.projectId,
+          statusLabel: '处理中',
+          rateBar,
+          ratePercent,
+          cwd: agentStatus.cwd ?? '',
+          model: agentStatus.model ?? '',
+          sessionId: agentStatus.sessionId ?? '',
+          gitStatus: agentStatus.gitStatus,
+          gitBranch: agentStatus.gitBranch ?? '',
+          gitDiffStat: agentStatus.gitDiffStat ?? '',
+          backgroundTasks: agentStatus.backgroundTasks.length > 0 ? agentStatus.backgroundTasks : undefined,
           footerItems: entry.footerItems,
-        });
+          template: 'blue',
+        }),
+        fallbackText: buildInFlightStatusMarkdown({
+          requestText: entry.requestText,
+          streamedReply: entry.streamedReply,
+          latestSummary: entry.latestSummary,
+        }),
+      };
+    } else {
+      presentation = buildRealtimeStatusPresentation({
+        projectTitle: entry.projectTitle,
+        status: input.status,
+        reason: input.reason,
+        completedMarkdown: input.status === 'done' ? entry.streamedReply : null,
+        footerItems: entry.footerItems,
+      });
+    }
     const signature = JSON.stringify({
       status: input.status,
       reason: input.status === 'working' ? entry.latestSummary : input.reason ?? null,
