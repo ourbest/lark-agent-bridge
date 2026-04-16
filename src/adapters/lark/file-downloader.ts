@@ -77,6 +77,54 @@ function formatDownloadErrorDetails(error: unknown): string {
   return parts.length > 0 ? parts.join(' | ') : 'no extra error details';
 }
 
+function stripQuotes(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function decodePossiblyMojibakeFilename(value: string): string {
+  const unquoted = stripQuotes(value);
+  if (!/[\u0080-\u00ff]/.test(unquoted)) {
+    return unquoted;
+  }
+
+  const decoded = Buffer.from(unquoted, 'latin1').toString('utf8');
+  if (decoded !== unquoted && /[\u4e00-\u9fff]/.test(decoded)) {
+    return decoded;
+  }
+
+  return unquoted;
+}
+
+function parseContentDispositionFilename(contentDisposition: string): string | null {
+  if (contentDisposition.trim() === '') {
+    return null;
+  }
+
+  const filenameStarMatch = contentDisposition.match(/filename\*\s*=\s*([^;]+)/i);
+  if (filenameStarMatch !== null) {
+    const rawValue = stripQuotes(filenameStarMatch[1] ?? '');
+    const utf8Match = rawValue.match(/^(?:UTF-8'')?(.*)$/i);
+    const encodedValue = utf8Match?.[1] ?? rawValue;
+    try {
+      return decodeURIComponent(encodedValue);
+    } catch {
+      return decodePossiblyMojibakeFilename(rawValue);
+    }
+  }
+
+  const filenameMatch = contentDisposition.match(/filename\s*=\s*([^;]+)/i);
+  if (filenameMatch !== null) {
+    return decodePossiblyMojibakeFilename(filenameMatch[1] ?? '');
+  }
+
+  return null;
+}
+
 export interface DownloadedFile {
   /** 文件二进制数据 */
   buffer: Buffer;
@@ -120,23 +168,8 @@ export async function downloadFeishuFile(
     const headers = result.headers as Record<string, string | undefined> | undefined;
 
     // 从 Content-Disposition 头提取文件名
-    let fileName = 'file.dat';
     const contentDisposition = headers?.['content-disposition'] ?? '';
-    const filenameMatch = contentDisposition.match(/filename\*?="?([^";]+)"?/);
-    if (filenameMatch) {
-      // 处理 RFC 5987 编码 (filename*=UTF-8''encoded_name)
-      let rawName = filenameMatch[1];
-      if (rawName.includes("''")) {
-        const encoded = rawName.split("''")[1];
-        try {
-          fileName = decodeURIComponent(encoded);
-        } catch {
-          fileName = rawName;
-        }
-      } else {
-        fileName = rawName;
-      }
-    }
+    const fileName = parseContentDispositionFilename(contentDisposition) ?? 'file.dat';
 
     // 从 Content-Type 头获取 MIME 类型
     const mimeType = headers?.['content-type']?.split(';')[0]?.trim() ?? 'application/octet-stream';

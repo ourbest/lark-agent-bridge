@@ -2,6 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { allocateWebSocketPort } from './websocket-port.ts';
 
+const WEBSOCKET_RECONNECT_DELAY_MS = 100;
+
 export interface CodexClientInfo {
   name: string;
   title: string;
@@ -98,6 +100,7 @@ export class CodexAppServerClient {
   private currentReplyTurnId: string | null = null;
   private currentReplyStatus: string | null = null;
   private currentReplyAborted = false;
+  private jsonBuffer = '';
   onTextDelta: ((text: string) => void) | null = null;
   onTurnCompleted: (() => void) | null = null;
   onThreadChanged: ((threadId: string) => void) | null = null;
@@ -253,17 +256,7 @@ export class CodexAppServerClient {
     }
 
     if (this.activeTransport === 'websocket') {
-      const websocketUrl = await this.resolveWebSocketUrl();
-      this.socket = await this.connectWebSocket(websocketUrl);
-      this.socket.onmessage = (event) => {
-        void this.handleMessage(String(event.data));
-      };
-      this.socket.onclose = () => {
-        this.handleConnectionClosed();
-      };
-      this.socket.onerror = (event) => {
-        this.handleConnectionError(event);
-      };
+      await this.ensureWebSocketStartedWithRetry();
     } else {
       const spawnAppServer =
         this.options.spawnAppServer ??
@@ -303,7 +296,25 @@ export class CodexAppServerClient {
 
       this.reader = createInterface({ input: spawned.stdout });
       this.reader.on('line', (line) => {
-        void this.handleMessage(line);
+        this.jsonBuffer += line;
+        try {
+          JSON.parse(this.jsonBuffer);
+        } catch (err) {
+          if (!(err instanceof SyntaxError)) {
+            this.jsonBuffer = '';
+            return;
+          }
+          const isIncompleteString = err.message.includes('Unterminated string');
+          if (!isIncompleteString) {
+            this.options.onStderr?.(`[codex-app-server-client] non-JSON output: ${line.slice(0, 200)}`);
+            this.jsonBuffer = '';
+            return;
+          }
+          this.jsonBuffer += '\n';
+          return;
+        }
+        void this.handleMessage(this.jsonBuffer);
+        this.jsonBuffer = '';
       });
     }
 
@@ -315,6 +326,40 @@ export class CodexAppServerClient {
     });
     this.sendNotification('initialized', {});
     await initialize;
+  }
+
+  private async ensureWebSocketStartedWithRetry(): Promise<void> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.startWebSocketTransport();
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt === 0 && this.isRetryableWebSocketError(lastError)) {
+          await new Promise((resolve) => setTimeout(resolve, WEBSOCKET_RECONNECT_DELAY_MS));
+          continue;
+        }
+        break;
+      }
+    }
+
+    throw lastError ?? new Error('Codex websocket connection failed');
+  }
+
+  private async startWebSocketTransport(): Promise<void> {
+    const websocketUrl = await this.resolveWebSocketUrl();
+    this.socket = await this.connectWebSocket(websocketUrl);
+    this.socket.onmessage = (event) => {
+      void this.handleMessage(String(event.data));
+    };
+    this.socket.onclose = () => {
+      this.handleConnectionClosed();
+    };
+    this.socket.onerror = (event) => {
+      this.handleConnectionError(event);
+    };
   }
 
   private async ensureThread(cwd?: string): Promise<void> {
@@ -348,7 +393,7 @@ export class CodexAppServerClient {
     this.sendRaw({ method, params });
   }
 
-  private async sendRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendRequest(method: string, params: Record<string, unknown>, timeoutMs = 30000): Promise<unknown> {
     if (this.process === null && this.socket === null) {
       throw new Error('Codex app-server transport is not started');
     }
@@ -356,12 +401,23 @@ export class CodexAppServerClient {
     const id = this.nextRequestId++;
     const message = { id, method, params };
 
+    let timeoutId: NodeJS.Timeout | null = null;
     const response = new Promise<unknown>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
+      timeoutId = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`Codex app-server request "${method}" (id=${id}) timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
     });
 
-    this.sendRaw(message);
-    return response;
+    try {
+      this.sendRaw(message);
+      return await response;
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   private sendRaw(message: Record<string, unknown>): void {
@@ -384,13 +440,21 @@ export class CodexAppServerClient {
   }
 
   private async handleMessage(raw: string): Promise<void> {
-    const message = JSON.parse(raw) as {
+    let message: {
       id?: number;
       result?: unknown;
       error?: { message?: string };
       method?: string;
       params?: Record<string, unknown>;
     };
+
+    try {
+      message = JSON.parse(raw) as typeof message;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      console.warn(`[codex-app-server-client] failed to parse JSON message (${error.message}): ${raw.slice(0, 200)}`);
+      return;
+    }
 
     if (message.id !== undefined && message.method !== undefined) {
       this.onServerRequest?.({
@@ -548,6 +612,16 @@ export class CodexAppServerClient {
 
   private handleConnectionTermination(error: Error): void {
     this.handleProcessTermination(error);
+  }
+
+  private isRetryableWebSocketError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('websocket') ||
+      message.includes('connection closed') ||
+      message.includes('failed to connect') ||
+      message.includes('closed before opening')
+    );
   }
 
   private handleProcessTermination(error: Error): void {

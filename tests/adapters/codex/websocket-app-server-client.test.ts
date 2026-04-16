@@ -267,3 +267,88 @@ test('reconnects before sending when the existing websocket is no longer open', 
   assert.equal(await secondReplyPromise, 'second reply');
   assert.deepEqual(openedUrls, ['ws://127.0.0.1:4000', 'ws://127.0.0.1:4000']);
 });
+
+test('retries websocket startup once after a transient connection failure', async () => {
+  const sentFrames: string[] = [];
+  const openedUrls: string[] = [];
+  let firstAttempt = true;
+
+  const fakeSocket = {
+    readyState: 1,
+    send(frame: string) {
+      sentFrames.push(frame);
+    },
+    close() {
+      return undefined;
+    },
+    onopen: null,
+    onmessage: null,
+    onerror: null,
+    onclose: null,
+  };
+
+  const client = new CodexAppServerClient({
+    command: 'codex',
+    args: ['app-server'],
+    clientInfo: {
+      name: 'bridge-test',
+      title: 'Bridge Test',
+      version: '0.0.0',
+    },
+    transport: 'websocket',
+    websocketUrl: 'ws://127.0.0.1:4000',
+    connectWebSocket(url) {
+      openedUrls.push(url);
+      if (firstAttempt) {
+        firstAttempt = false;
+        return Promise.reject(new Error(`Failed to connect to Codex websocket at ${url}`));
+      }
+
+      setImmediate(() => {
+        fakeSocket.onopen?.(new Event('open'));
+      });
+      return Promise.resolve(fakeSocket);
+    },
+  });
+
+  const replyPromise = client.generateReply({ text: 'Hello after retry.' });
+
+  const waitForFrame = async (method: string) => {
+    for (let attempts = 0; attempts < 40; attempts++) {
+      if (sentFrames.some((entry) => JSON.parse(entry).method === method)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.fail(`missing frame for ${method}`);
+  };
+
+  const requestId = (method: string): number => {
+    const frame = sentFrames.find((entry) => JSON.parse(entry).method === method);
+    assert.ok(frame, `missing frame for ${method}`);
+    return JSON.parse(frame).id;
+  };
+
+  await waitForFrame('initialize');
+  fakeSocket.onmessage?.({ data: `${JSON.stringify({ id: requestId('initialize'), result: {} })}` });
+  await new Promise((resolve) => setImmediate(resolve));
+  await waitForFrame('thread/start');
+  fakeSocket.onmessage?.({
+    data: `${JSON.stringify({ id: requestId('thread/start'), result: { thread: { id: 'thr_retry' } } })}`,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await waitForFrame('turn/start');
+  fakeSocket.onmessage?.({
+    data: `${JSON.stringify({ id: requestId('turn/start'), result: { turn: { id: 'turn_retry' } } })}`,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  fakeSocket.onmessage?.({
+    data: `${JSON.stringify({ method: 'item/agentMessage/delta', params: { text: 'recovered reply' } })}`,
+  });
+  fakeSocket.onmessage?.({
+    data: `${JSON.stringify({ method: 'turn/completed', params: { turn: { status: 'completed' } } })}`,
+  });
+
+  assert.equal(await replyPromise, 'recovered reply');
+  assert.deepEqual(openedUrls, ['ws://127.0.0.1:4000', 'ws://127.0.0.1:4000']);
+});

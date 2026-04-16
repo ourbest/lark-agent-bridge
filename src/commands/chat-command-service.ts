@@ -200,6 +200,14 @@ async function buildSessionStateLines(
   return lines;
 }
 
+async function canBindProject(
+  projectRegistry: ChatCommandServiceDependencies['projectRegistry'],
+  projectId: string,
+): Promise<boolean> {
+  const state = await projectRegistry.describeProject(projectId);
+  return state.configured || state.active;
+}
+
 function parseCommand(text: string): { kind: 'bridge' | 'codex' | 'unknown' | 'none'; command: string; args: string[] } {
   const trimmed = text.trim();
   if (trimmed === '') {
@@ -598,6 +606,21 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
               return ['Usage: //bind <projectId>'];
             }
             const projectId = parsed.args[0];
+            let bindable = await canBindProject(dependencies.projectRegistry, projectId);
+            if (!bindable && dependencies.reloadProjects !== undefined) {
+              try {
+                await dependencies.reloadProjects();
+              } catch (error) {
+                return [`[lark-agent-bridge] failed to reload projects: ${error instanceof Error ? error.message : String(error)}`];
+              }
+
+              bindable = await canBindProject(dependencies.projectRegistry, projectId);
+            }
+
+            if (!bindable) {
+              return [`[lark-agent-bridge] 项目不存在: ${projectId}`];
+            }
+
             await dependencies.bindingService.bindProjectToSession(projectId, input.sessionId);
             return [`[lark-agent-bridge] bound chat ${input.sessionId} to project "${projectId}"`];
           }
@@ -620,8 +643,17 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             ];
           }
 
-          case 'projects':
+          case 'projects': {
+            if (dependencies.reloadProjects !== undefined) {
+              try {
+                await dependencies.reloadProjects();
+              } catch (error) {
+                return [`[lark-agent-bridge] failed to reload projects: ${error instanceof Error ? error.message : String(error)}`];
+              }
+            }
+
             return await buildProjectsLines(dependencies);
+          }
 
           case 'providers':
             return await buildProvidersLines(dependencies, input.sessionId);

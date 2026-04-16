@@ -9,6 +9,7 @@ export interface ProviderDescriptor {
   transport: ProviderTransport;
   port?: number;
   websocketUrl?: string;
+  remoteCwd?: string;
   sshHost?: string;
   sshPort?: number;
   sshUser?: string;

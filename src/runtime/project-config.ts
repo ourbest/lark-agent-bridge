@@ -12,6 +12,7 @@ export interface ProjectProviderConfig {
   transport?: 'stdio' | 'websocket' | 'ssh+stdio';
   port?: number;
   websocketUrl?: string;
+  remoteCwd?: string;
   sshHost?: string;
   sshPort?: number;
   sshUser?: string;
@@ -128,6 +129,7 @@ export function normalizeProjectProviders(providers: unknown): ProjectProviderCo
       transport: normalizeProviderTransport(entry.transport),
       ...(typeof entry.port === 'number' ? { port: entry.port } : {}),
       ...(typeof entry.websocketUrl === 'string' ? { websocketUrl: entry.websocketUrl } : {}),
+      ...(typeof entry.remoteCwd === 'string' ? { remoteCwd: entry.remoteCwd } : {}),
       ...(typeof entry.sshHost === 'string' ? { sshHost: entry.sshHost } : {}),
       ...(typeof entry.sshPort === 'number' ? { sshPort: entry.sshPort } : {}),
       ...(typeof entry.sshUser === 'string' ? { sshUser: entry.sshUser } : {}),

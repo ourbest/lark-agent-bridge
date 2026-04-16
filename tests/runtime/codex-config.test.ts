@@ -89,6 +89,7 @@ test('normalizes explicit provider ids and kinds', () => {
           kind: 'cc',
           transport: 'websocket',
           websocketUrl: 'ws://cc-east.example.com:4000',
+          remoteCwd: '/remote/repo-a',
         },
       ],
     }),
@@ -101,6 +102,7 @@ test('normalizes explicit provider ids and kinds', () => {
           kind: 'cc',
           transport: 'websocket',
           websocketUrl: 'ws://cc-east.example.com:4000',
+          remoteCwd: '/remote/repo-a',
         },
       ],
     },
@@ -267,11 +269,18 @@ test('keeps valid projects from a mixed projects file and skips malformed entrie
     `${JSON.stringify(
       {
         projects: [
-          {
-            projectInstanceId: 'project-a',
-            cwd: '/repo/a',
-            providers: [],
-          },
+            {
+              projectInstanceId: 'project-a',
+              cwd: '/repo/a',
+              providers: [
+                {
+                  id: 'codex',
+                  kind: 'codex',
+                  transport: 'websocket',
+                  remoteCwd: '/remote/repo/a',
+                },
+              ],
+            },
           {
             projectInstanceId: 'project-b',
           },
@@ -294,10 +303,7 @@ test('keeps valid projects from a mixed projects file and skips malformed entrie
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
       providers: [
-        { id: 'codex', kind: 'codex', transport: 'stdio' },
-        { id: 'cc', kind: 'cc', transport: 'stdio' },
-        { id: 'qwen', kind: 'qwen', transport: 'stdio' },
-        { id: 'gemini', kind: 'gemini', transport: 'stdio' },
+        { id: 'codex', kind: 'codex', transport: 'websocket', remoteCwd: '/remote/repo/a' },
       ],
     },
   ]);
@@ -317,7 +323,14 @@ test('loads stdio project configs from projects file shape', () => {
           {
             projectInstanceId: 'project-a',
             cwd: '/repo/a',
-            providers: [],
+            providers: [
+              {
+                id: 'codex',
+                kind: 'codex',
+                transport: 'websocket',
+                remoteCwd: '/remote/repo/a',
+              },
+            ],
           },
         ],
       },
@@ -338,10 +351,7 @@ test('loads stdio project configs from projects file shape', () => {
       websocketUrl: 'ws://127.0.0.1:4000',
       adapterType: 'codex',
       providers: [
-        { id: 'codex', kind: 'codex', transport: 'stdio' },
-        { id: 'cc', kind: 'cc', transport: 'stdio' },
-        { id: 'qwen', kind: 'qwen', transport: 'stdio' },
-        { id: 'gemini', kind: 'gemini', transport: 'stdio' },
+        { id: 'codex', kind: 'codex', transport: 'websocket', remoteCwd: '/remote/repo/a' },
       ],
     },
   ]);

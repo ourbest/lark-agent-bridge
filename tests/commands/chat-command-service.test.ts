@@ -437,6 +437,76 @@ test('returns the current binding for //list', async () => {
   ]);
 });
 
+test('retries project discovery before binding when the project is missing initially', async () => {
+  const bindingService = createBindingService();
+  const discoveredProjects = new Set<string>();
+  let reloadCalls = 0;
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject(projectInstanceId: string) {
+        return {
+          projectInstanceId,
+          configured: discoveredProjects.has(projectInstanceId),
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+    },
+    reloadProjects: async () => {
+      reloadCalls += 1;
+      discoveredProjects.add('project-a');
+      return ['[lark-agent-bridge] reloaded projects: 1'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//bind project-a',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] bound chat chat-a to project "project-a"']);
+  assert.equal(reloadCalls, 1);
+  assert.equal(await bindingService.getProjectBySession('chat-a'), 'project-a');
+});
+
+test('returns project不存在 when project discovery still cannot find the project after reload', async () => {
+  const bindingService = createBindingService();
+  let reloadCalls = 0;
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject(projectInstanceId: string) {
+        return {
+          projectInstanceId,
+          configured: false,
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+    },
+    reloadProjects: async () => {
+      reloadCalls += 1;
+      return ['[lark-agent-bridge] reloaded projects: 0'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//bind missing-project',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] 项目不存在: missing-project']);
+  assert.equal(reloadCalls, 1);
+  assert.equal(await bindingService.getProjectBySession('chat-a'), null);
+});
+
 test('returns an acknowledgement for //restart', async () => {
   const bindingService = createBindingService();
   const registry = createProjectRegistry({
@@ -605,6 +675,96 @@ test('lists projects with //projects', async () => {
     '  - active: no',
     '  - removed: no',
   ]);
+});
+
+test('//projects reloads project configuration before listing', async () => {
+  const bindingService = createBindingService();
+  let reloadCount = 0;
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject(projectInstanceId: string) {
+        return {
+          projectInstanceId,
+          configured: true,
+          active: false,
+          removed: false,
+          sessionCount: 0,
+        };
+      },
+      async listProjects() {
+        return reloadCount === 0
+          ? [
+              {
+                projectInstanceId: 'alpha',
+                cwd: '/repo/alpha',
+                source: 'config',
+                activeProvider: 'codex',
+                providers: [{ id: 'codex', kind: 'codex', transport: 'stdio' }],
+                configured: true,
+                active: false,
+                removed: false,
+              },
+            ]
+          : [
+              {
+                projectInstanceId: 'alpha',
+                cwd: '/repo/alpha',
+                source: 'config',
+                activeProvider: 'codex',
+                providers: [{ id: 'codex', kind: 'codex', transport: 'stdio' }],
+                configured: true,
+                active: false,
+                removed: false,
+              },
+              {
+                projectInstanceId: 'beta',
+                cwd: '/repo/beta',
+                source: 'root',
+                activeProvider: 'qwen',
+                providers: [
+                  { id: 'codex', kind: 'codex', transport: 'stdio' },
+                  { id: 'qwen', kind: 'qwen', transport: 'stdio' },
+                ],
+                configured: true,
+                active: false,
+                removed: false,
+              },
+            ];
+      },
+    },
+    reloadProjects: async () => {
+      reloadCount += 1;
+      return ['[lark-agent-bridge] reloaded projects: 2'];
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//projects',
+  });
+
+  assert.deepEqual(lines, [
+    '## [lark-agent-bridge] projects',
+    '- alpha',
+    '  - cwd: /repo/alpha',
+    '  - source: config',
+    '  - active provider: codex',
+    '  - providers: codex',
+    '  - configured: yes',
+    '  - active: no',
+    '  - removed: no',
+    '- beta',
+    '  - cwd: /repo/beta',
+    '  - source: root',
+    '  - active provider: qwen',
+    '  - providers: codex, qwen',
+    '  - configured: yes',
+    '  - active: no',
+    '  - removed: no',
+  ]);
+  assert.equal(reloadCount, 1);
 });
 
 test('lists and switches providers for the bound project', async () => {

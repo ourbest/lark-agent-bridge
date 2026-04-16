@@ -53,12 +53,26 @@ Example:
         { "provider": "codex", "transport": "stdio" },
         { "provider": "qwen", "transport": "stdio" }
       ]
+    },
+    {
+      "projectInstanceId": "my-remote-codex-project",
+      "cwd": "/path/to/local/project",
+      "providers": [
+        {
+          "provider": "codex",
+          "transport": "websocket",
+          "websocketUrl": "ws://10.8.0.19:4010",
+          "remoteCwd": "/path/to/remote/project"
+        }
+      ]
     }
   ]
 }
 ```
 
 If `providers` is omitted or set to `[]`, the bridge uses the default provider list: `codex`, `cc`, and `qwen`.
+
+`cwd` is the bridge-side local project path. Use `remoteCwd` when a websocket-based Codex provider needs a different working directory on the remote machine.
 
 ### OpenCode Projects
 
@@ -265,4 +279,3 @@ For single-project console mode:
 - Codex connections are established lazily when a chat first binds to a project
 - Connections are released when all bound chats are unbound
 - `//read` tries to upload a file to Feishu first, then falls back to text if file upload is unavailable
-

@@ -74,6 +74,7 @@ function cloneDescriptor(descriptor: ProviderDescriptor): ProviderDescriptor {
     transport: descriptor.transport,
     ...(descriptor.port !== undefined ? { port: descriptor.port } : {}),
     ...(descriptor.websocketUrl !== undefined ? { websocketUrl: descriptor.websocketUrl } : {}),
+    ...(descriptor.remoteCwd !== undefined ? { remoteCwd: descriptor.remoteCwd } : {}),
     ...(descriptor.sshHost !== undefined ? { sshHost: descriptor.sshHost } : {}),
     ...(descriptor.sshPort !== undefined ? { sshPort: descriptor.sshPort } : {}),
     ...(descriptor.sshUser !== undefined ? { sshUser: descriptor.sshUser } : {}),

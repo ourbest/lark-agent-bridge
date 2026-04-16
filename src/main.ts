@@ -24,6 +24,7 @@ import type { ProviderDescriptor } from './runtime/provider-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
 import { createProjectManagementService } from './runtime/project-management-service.ts';
 import { loadProjectConfigs } from './runtime/project-discovery.ts';
+import { restoreBoundProjects } from './runtime/binding-restoration.ts';
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
 import { formatCodexCommandResult } from './runtime/codex-command-formatting.ts';
 import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
@@ -455,16 +456,6 @@ export async function run(): Promise<void> {
     },
   });
 
-  const restoreBoundProjects = async () => {
-    if (projectRegistryImpl === null) {
-      return;
-    }
-
-    for (const binding of await app.bindingService.getAllBindings()) {
-      await projectRegistryImpl.restoreBinding(binding.projectInstanceId, binding.sessionId);
-    }
-  };
-
   if (consoleRuntime !== null) {
     const project = codexRuntimes.find((entry) => entry.projectInstanceId === consoleRuntime.projectInstanceId) ?? {
       projectInstanceId: consoleRuntime.projectInstanceId,
@@ -572,6 +563,10 @@ export async function run(): Promise<void> {
       const providerId = provider?.id ?? projectInstanceId;
       const providerKind = provider?.kind ?? 'codex';
       const providerTransport = provider?.transport ?? (config.transport === 'stdio' ? 'stdio' : 'websocket');
+      const providerCwd =
+        typeof provider?.remoteCwd === 'string' && provider.remoteCwd.trim() !== ''
+          ? provider.remoteCwd.trim()
+          : config.cwd;
       const sshHost = typeof provider?.sshHost === 'string' ? provider.sshHost.trim() : '';
       const sshCommand = typeof provider?.sshCommand === 'string' ? provider.sshCommand.trim() : '';
       const websocketUrl =
@@ -593,7 +588,7 @@ export async function run(): Promise<void> {
           return createSshStdioCodexClient({
             command,
             args,
-            cwd: config.cwd,
+            cwd: providerCwd,
             clientInfo: { name: 'lark-agent-bridge', title: 'Codex Bridge', version: '0.2.0-dev' },
             getModel: () => config.model ?? projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId)?.model,
             serviceName,
@@ -611,7 +606,7 @@ export async function run(): Promise<void> {
           return new CodexAppServerClient({
             command,
             args,
-            cwd: config.cwd,
+            cwd: providerCwd,
             clientInfo: { name: 'lark-agent-bridge', title: 'Codex Bridge', version: '0.2.0-dev' },
             getModel: () => config.model ?? projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId)?.model,
             serviceName,
@@ -820,7 +815,14 @@ export async function run(): Promise<void> {
         return;
       }
       await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
-      await restoreBoundProjects();
+      await restoreBoundProjects({
+        bindingService: app.bindingService,
+        projectRegistry: projectRegistryImpl,
+        onError: ({ projectInstanceId, sessionId, error }) => {
+          const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
+          console.warn(`[lark-agent-bridge] skipped restoring binding: project=${projectInstanceId} session=${sessionId} reason="${reason}"`);
+        },
+      });
     },
   });
   reloadProjectsHandler = async () => {
@@ -846,7 +848,14 @@ export async function run(): Promise<void> {
   console.log(`[lark-agent-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
 
   await app.start();
-  await restoreBoundProjects();
+  await restoreBoundProjects({
+    bindingService: app.bindingService,
+    projectRegistry: projectRegistryImpl,
+    onError: ({ projectInstanceId, sessionId, error }) => {
+      const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
+      console.warn(`[lark-agent-bridge] skipped restoring binding: project=${projectInstanceId} session=${sessionId} reason="${reason}"`);
+    },
+  });
   await projectConfigWatcher.start();
 
   // Send startup notification to specified openId

@@ -25,6 +25,7 @@ function normalizeProjectConfigEntry(entry: ProjectConfigFileEntry): ProjectConf
     serviceName: typeof entry.serviceName === 'string' ? entry.serviceName : undefined,
     transport: entry.transport === 'stdio' ? 'stdio' : 'websocket',
     websocketUrl: typeof entry.websocketUrl === 'string' ? entry.websocketUrl : undefined,
+    remoteCwd: typeof entry.remoteCwd === 'string' ? entry.remoteCwd : undefined,
     qwenExecutable: typeof entry.qwenExecutable === 'string' ? entry.qwenExecutable : undefined,
     opencodeHostname: typeof entry.opencodeHostname === 'string' ? entry.opencodeHostname : undefined,
     opencodePort: typeof entry.opencodePort === 'number' ? entry.opencodePort : undefined,
@@ -72,6 +73,7 @@ export interface CodexRuntimeConfig {
   serviceName: string;
   transport: 'stdio' | 'websocket';
   websocketUrl?: string;
+  remoteCwd?: string;
   adapterType?: 'codex' | 'claude-code' | 'qwen-code' | 'opencode';
   qwenExecutable?: string;
   opencodeHostname?: string;
@@ -123,7 +125,7 @@ function parseProjectConfigs(value: string | undefined, homeDir: string | undefi
     );
     const transport = record.transport ?? 'websocket';
 
-    return {
+    const runtime: CodexRuntimeConfig = {
       projectInstanceId: record.projectInstanceId,
       command: record.command?.trim() || 'codex',
       args: Array.isArray(record.args) ? record.args : ['app-server'],
@@ -131,7 +133,7 @@ function parseProjectConfigs(value: string | undefined, homeDir: string | undefi
       ...(record.model?.trim() ? { model: record.model.trim() } : {}),
       serviceName: record.serviceName?.trim() || 'lark-agent-bridge',
       transport,
-      websocketUrl: transport === 'stdio' ? undefined : record.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
+      ...(transport === 'stdio' ? {} : { websocketUrl: record.websocketUrl?.trim() || 'ws://127.0.0.1:4000' }),
       adapterType: record.adapterType ?? 'codex',
       ...(record.qwenExecutable?.trim() ? { qwenExecutable: record.qwenExecutable.trim() } : {}),
       ...(record.opencodeHostname?.trim() ? { opencodeHostname: record.opencodeHostname.trim() } : {}),
@@ -141,6 +143,12 @@ function parseProjectConfigs(value: string | undefined, homeDir: string | undefi
       ...(record.opencodeUsername?.trim() ? { opencodeUsername: record.opencodeUsername.trim() } : {}),
       ...(record.opencodePassword?.trim() ? { opencodePassword: record.opencodePassword.trim() } : {}),
     };
+
+    if (typeof record.remoteCwd === 'string' && record.remoteCwd.trim() !== '') {
+      runtime.remoteCwd = record.remoteCwd.trim();
+    }
+
+    return runtime;
   });
 }
 
@@ -187,6 +195,7 @@ export function createCodexRuntimeConfig(input: {
   serviceName?: string;
   transport?: 'stdio' | 'websocket';
   websocketUrl?: string;
+  remoteCwd?: string;
   qwenExecutable?: string;
   opencodeHostname?: string;
   opencodePort?: number;
@@ -196,7 +205,7 @@ export function createCodexRuntimeConfig(input: {
   opencodePassword?: string;
 }): CodexRuntimeConfig {
   const model = input.model?.trim();
-  const entry = {
+  const entry: CodexRuntimeConfig = {
     projectInstanceId: input.projectInstanceId.trim(),
     command: input.command?.trim() || 'codex',
     args: input.args ?? ['app-server'],
@@ -204,8 +213,7 @@ export function createCodexRuntimeConfig(input: {
     ...(model !== undefined && model !== '' ? { model } : {}),
     serviceName: input.serviceName?.trim() || 'lark-agent-bridge',
     transport: input.transport ?? 'websocket',
-    websocketUrl:
-      (input.transport ?? 'websocket') === 'stdio' ? undefined : input.websocketUrl?.trim() || 'ws://127.0.0.1:4000',
+    ...((input.transport ?? 'websocket') === 'stdio' ? {} : { websocketUrl: input.websocketUrl?.trim() || 'ws://127.0.0.1:4000' }),
     ...(input.qwenExecutable?.trim() ? { qwenExecutable: input.qwenExecutable.trim() } : {}),
     ...(input.opencodeHostname?.trim() ? { opencodeHostname: input.opencodeHostname.trim() } : {}),
     ...(typeof input.opencodePort === 'number' ? { opencodePort: input.opencodePort } : {}),
@@ -215,5 +223,8 @@ export function createCodexRuntimeConfig(input: {
     ...(input.opencodePassword?.trim() ? { opencodePassword: input.opencodePassword.trim() } : {}),
     adapterType: 'codex' as const,
   };
+  if (input.remoteCwd !== undefined && input.remoteCwd.trim() !== '') {
+    entry.remoteCwd = input.remoteCwd.trim();
+  }
   return createProjectConfigEntry(entry, input.cwd?.trim() || undefined) as unknown as CodexRuntimeConfig;
 }
