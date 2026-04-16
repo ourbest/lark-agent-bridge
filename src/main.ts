@@ -624,7 +624,7 @@ export async function run(): Promise<void> {
         if (provider.kind === 'cc') {
           return new ClaudeCodeClient({
             command: 'claude',
-            args: ['--output-format', 'stream-json', '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio'],
+            args: ['--output-format', 'stream-json', '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio', '--verbose'],
             cwd: providerCwd,
           });
         }
