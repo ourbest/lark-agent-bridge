@@ -1,6 +1,7 @@
 import type { BindingService } from '../core/binding/binding-service.ts';
 import type { ProjectState } from '../runtime/project-registry.ts';
 import type { ApprovalService } from '../runtime/approval-service.ts';
+import type { PermissionMode } from '../runtime/project-config.ts';
 import type { ProviderDescriptor, ProviderState } from '../runtime/provider-registry.ts';
 import type { Thread } from '../runtime/thread-manager.ts';
 
@@ -51,7 +52,7 @@ export interface ChatCommandServiceDependencies {
     listProjectProviders?(projectInstanceId: string): Promise<Array<ProjectProviderSummary | ProviderState>>;
     getActiveProvider?(projectInstanceId: string): Promise<string | null>;
     setActiveProvider?(projectInstanceId: string, provider: string): Promise<void> | void;
-    updateProjectConfig?(projectInstanceId: string, input: { model?: string | null }): Promise<{ model?: string | null } | null> | { model?: string | null } | null;
+    updateProjectConfig?(projectInstanceId: string, input: { model?: string | null; permissionMode?: PermissionMode | null }): Promise<{ model?: string | null; permissionMode?: PermissionMode | null } | null> | { model?: string | null; permissionMode?: PermissionMode | null } | null;
     startThread?(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
     getLastThread?(projectInstanceId: string, sessionId: string): Promise<string | null>;
     resumeThread?(projectInstanceId: string, threadId: string): Promise<string>;
