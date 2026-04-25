@@ -333,6 +333,14 @@ function deriveCommandCardTitle(text: string): string {
   return normalized === '' ? 'lark-agent-bridge' : normalized;
 }
 
+interface ToolCallEntry {
+  timestamp: number;
+  toolName: string;
+  input?: string;
+  output?: string;
+  status: 'started' | 'completed' | 'failed';
+}
+
 type ActiveStatusCard = {
   projectId: string;
   sessionId: string;
@@ -344,6 +352,7 @@ type ActiveStatusCard = {
   requestText: string;
   streamedReply: string;
   latestSummary: string | null;
+  toolCalls: ToolCallEntry[];
 };
 
 function buildInFlightStatusMarkdown(input: {
@@ -534,7 +543,7 @@ export function createBridgeApp(options: {
     activeStatusCards.set(input.sessionId, input);
   }
 
-  function updateActiveStatusCard(sessionId: string, patch: Partial<Pick<ActiveStatusCard, 'requestText' | 'streamedReply' | 'latestSummary'>>): void {
+  function updateActiveStatusCard(sessionId: string, patch: Partial<Pick<ActiveStatusCard, 'requestText' | 'streamedReply' | 'latestSummary' | 'toolCalls'>>): void {
     const entry = activeStatusCards.get(sessionId);
     if (entry === undefined) {
       return;
@@ -1200,6 +1209,7 @@ export function createBridgeApp(options: {
                 requestText: message.text,
                 streamedReply: '',
                 latestSummary: `Transcribing audio attachment(s): ${audioFileNames}`,
+                toolCalls: [],
               });
             }
 
@@ -1371,6 +1381,7 @@ export function createBridgeApp(options: {
         requestText: message.text,
         streamedReply: '',
         latestSummary: null,
+        toolCalls: [],
       });
     }
 
