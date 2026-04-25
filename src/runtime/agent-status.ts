@@ -64,6 +64,20 @@ export class AgentStatusManager {
     state.backgroundTasks = tasks;
   }
 
+  addToolCall(projectId: string, entry: ToolCallEntry): void {
+    const state = this.states.get(projectId);
+    if (state) {
+      state.toolCalls.push(entry);
+    }
+  }
+
+  clearToolCalls(projectId: string): void {
+    const state = this.states.get(projectId);
+    if (state) {
+      state.toolCalls = [];
+    }
+  }
+
   getStatus(projectId: string): AgentStatusState {
     return this.getOrCreateState(projectId);
   }

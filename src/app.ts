@@ -15,7 +15,7 @@ import type { BindingStore } from './storage/binding-store.ts';
 import type { ProjectDiagnostics, ProjectState } from './runtime/project-registry.ts';
 import type { ApprovalService } from './runtime/approval-service.ts';
 import type { ProjectConfig } from './runtime/project-registry.ts';
-import { AgentStatusManager } from './runtime/agent-status.ts';
+import { AgentStatusManager, type ToolCallEntry } from './runtime/agent-status.ts';
 import { readCodexStatusLines } from './runtime/codex-status.ts';
 import { getProviderDisplayName } from './runtime/provider-registry.ts';
 import {
@@ -331,14 +331,6 @@ function deriveCommandCardTitle(text: string): string {
   const token = trimmed.split(/\s+/)[0] ?? 'lark-agent-bridge';
   const normalized = token.startsWith('//') ? token.slice(2) : token;
   return normalized === '' ? 'lark-agent-bridge' : normalized;
-}
-
-interface ToolCallEntry {
-  timestamp: number;
-  toolName: string;
-  input?: string;
-  output?: string;
-  status: 'started' | 'completed' | 'failed';
 }
 
 type ActiveStatusCard = {
