@@ -6,6 +6,8 @@ const SERIALIZED_CWD = Symbol('serializedCwd');
 export type ProjectProviderKind = 'codex' | 'cc' | 'qwen' | 'gemini';
 export type ProjectProviderName = ProjectProviderKind;
 
+export type PermissionMode = 'plan' | 'auto-edit' | 'yolo';
+
 export interface ProjectProviderConfig {
   id: string;
   kind: ProjectProviderKind;
@@ -26,6 +28,8 @@ export interface ProjectConfig {
   projectInstanceId: string;
   cwd: string;
   providers: ProjectProviderConfig[];
+  model?: string;
+  permissionMode?: PermissionMode;
 }
 
 export interface ProjectConfigMetadata {
@@ -42,7 +46,11 @@ export interface ProjectConfigInput {
 
 export const DEFAULT_PROJECT_PROVIDER_NAMES = ['codex', 'cc', 'qwen', 'gemini'] as const;
 
-export function resolvePathLikeInput(value: string | undefined, homeDir: string | undefined = process.env.HOME): string | undefined {
+export function resolvePathLikeInput(
+  value: string | undefined,
+  homeDir: string | undefined = process.env.HOME,
+  baseDir?: string,
+): string | undefined {
   const trimmed = value?.trim();
   if (trimmed === undefined || trimmed === '') {
     return undefined;
@@ -59,6 +67,10 @@ export function resolvePathLikeInput(value: string | undefined, homeDir: string 
     }
 
     return path.join(resolvedHome, trimmed.slice(2));
+  }
+
+  if (baseDir !== undefined && !path.isAbsolute(trimmed)) {
+    return path.resolve(baseDir, trimmed);
   }
 
   return trimmed;
@@ -142,14 +154,14 @@ export function normalizeProjectProviders(providers: unknown): ProjectProviderCo
   return normalizedProviders;
 }
 
-export function normalizeProjectConfig(input: ProjectConfigInput, options?: { homeDir?: string }): ProjectConfig {
+export function normalizeProjectConfig(input: ProjectConfigInput, options?: { homeDir?: string; baseDir?: string }): ProjectConfig {
   const projectInstanceId = typeof input.projectInstanceId === 'string' ? input.projectInstanceId.trim() : '';
   if (projectInstanceId === '') {
     throw new Error('projectInstanceId is required');
   }
 
   const cwdValue = typeof input.cwd === 'string' ? input.cwd : '';
-  const cwd = resolvePathLikeInput(cwdValue, options?.homeDir);
+  const cwd = resolvePathLikeInput(cwdValue, options?.homeDir, options?.baseDir);
   if (cwd === undefined || cwd.trim() === '') {
     throw new Error('cwd is required');
   }
@@ -197,7 +209,7 @@ export function writeProjectsFile(filePath: string, projects: ProjectConfigEntry
   writeFileSync(filePath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
 }
 
-export function parseProjectConfigEntries(raw: string, options?: { homeDir?: string }): ProjectConfigEntry[] | null {
+export function parseProjectConfigEntries(raw: string, options?: { homeDir?: string; baseDir?: string }): ProjectConfigEntry[] | null {
   if (raw.trim() === '') {
     return null;
   }
@@ -248,7 +260,7 @@ export function loadProjectsFromFile(filePath: string, options?: { homeDir?: str
     }
 
     const raw = readFileSync(filePath, 'utf8');
-    return parseProjectConfigEntries(raw, options);
+    return parseProjectConfigEntries(raw, { ...options, baseDir: path.dirname(filePath) });
   } catch {
     return null;
   }
