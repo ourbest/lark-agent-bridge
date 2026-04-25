@@ -378,27 +378,17 @@ export async function run(): Promise<void> {
         const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
         return entry ?? null;
       },
-      async updateProjectConfig(projectInstanceId: string, input: { model?: string | null }) {
+      async updateProjectConfig(projectInstanceId: string, input: { model?: string | null; permissionMode?: string | null }) {
         const entry = projectConfigEntries.find((p) => p.projectInstanceId === projectInstanceId);
         if (entry === undefined) {
           return null;
         }
-
         if (input.model !== undefined) {
-          const normalizedModel = input.model.trim();
-          if (normalizedModel === '') {
-            delete entry.model;
-          } else {
-            entry.model = normalizedModel;
-          }
+          entry.model = input.model;
         }
-
-        writeProjectsFile(projectsFilePath, projectConfigEntries);
-
-        if (projectRegistryImpl !== null) {
-          await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
+        if (input.permissionMode !== undefined) {
+          entry.permissionMode = input.permissionMode;
         }
-
         return entry;
       },
       async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
@@ -555,6 +545,7 @@ export async function run(): Promise<void> {
   projectRegistryImpl = createProjectRegistry({
     bridgeStateStore: bridgeStore,
     onSystemInit: (projectInstanceId, data) => {
+      console.log(`[main] onSystemInit: projectInstanceId=${projectInstanceId} data=${JSON.stringify(data)}`);
       agentStatusManager.updateFromSystemInit(projectInstanceId, data);
     },
     getProjectConfig: (projectInstanceId: string) => {
