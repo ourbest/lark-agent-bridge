@@ -336,6 +336,19 @@ export class ClaudeCodeClient implements CodexProjectClient {
     });
   }
 
+  async sendInput(text: string): Promise<void> {
+    if (!this.proc) {
+      await this.start();
+    }
+    this.sendMessage({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: text,
+      },
+    });
+  }
+
   async startThread(input?: { cwd?: string; force?: boolean }): Promise<string> {
     // Claude Code doesn't have explicit thread start - each message is in the same session
     // We just return the session id
