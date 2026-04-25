@@ -180,6 +180,13 @@ export class CodexAppServerClient {
     return await this.sendRequest(input.method, input.params);
   }
 
+  async sendInput(text: string): Promise<void> {
+    await this.ensureStarted();
+    await this.sendRequest('input', {
+      text: [{ type: 'text', text }],
+    });
+  }
+
   async resumeThread(input: CodexResumeThreadInput): Promise<string> {
     await this.ensureStarted();
 
