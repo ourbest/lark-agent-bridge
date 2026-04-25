@@ -3,6 +3,14 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+export interface ToolCallEntry {
+  timestamp: number;
+  toolName: string;
+  input?: string;
+  output?: string;
+  status: 'started' | 'completed' | 'failed';
+}
+
 export interface AgentStatusState {
   model: string | null;
   sessionId: string | null;
@@ -12,6 +20,7 @@ export interface AgentStatusState {
   gitBranch: string | null;
   gitDiffStat: string | null;
   backgroundTasks: Array<{ id: string; name: string; status: string }>;
+  toolCalls: ToolCallEntry[];
 }
 
 export interface SystemInitData {
@@ -71,6 +80,7 @@ export class AgentStatusManager {
         gitBranch: null,
         gitDiffStat: null,
         backgroundTasks: [],
+        toolCalls: [],
       };
       this.states.set(projectId, state);
     }
