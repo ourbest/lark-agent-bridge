@@ -197,6 +197,7 @@ export class QwenCodeClient implements CodexProjectClient {
   private pendingPromptWaiters: Array<(value: QwenUserMessage | null) => void> = [];
   private pendingApprovals = new Map<string, PendingApproval>();
   private sessionApprovedRequestSignatures = new Set<string>();
+  private pendingToolName: string | null = null;
 
   constructor(options: QwenCodeClientOptions) {
     this.cwd = options.cwd;
@@ -404,6 +405,18 @@ export class QwenCodeClient implements CodexProjectClient {
 
     if (message.type === 'result') {
       const result = typeof message.result === 'string' ? message.result : '';
+      if (this.pendingToolName !== null) {
+        this.onNotification?.({
+          method: 'tool/use',
+          params: {
+            tool_name: this.pendingToolName,
+            status: 'completed',
+            output: result.slice(0, 200),
+            timestamp: Date.now(),
+          },
+        });
+        this.pendingToolName = null;
+      }
       const reply = this.currentTurnBuffer.trim() !== '' ? this.currentTurnBuffer : result;
       this.currentTurnBuffer = '';
       this.currentTurnId = null;
@@ -423,6 +436,16 @@ export class QwenCodeClient implements CodexProjectClient {
   private async handleCanUseTool(toolName: string, input: unknown, context: QwenCanUseToolContext): Promise<QwenCanUseToolResult> {
     const pendingSignature = buildApprovalSignature({ toolName, input });
     if (pendingSignature !== null && this.sessionApprovedRequestSignatures.has(pendingSignature)) {
+      this.pendingToolName = toolName;
+      this.onNotification?.({
+        method: 'tool/use',
+        params: {
+          tool_name: toolName,
+          input: JSON.stringify(input).slice(0, 200),
+          status: 'started',
+          timestamp: Date.now(),
+        },
+      });
       return { behavior: 'allow', updatedInput: input };
     }
 
@@ -470,10 +493,33 @@ export class QwenCodeClient implements CodexProjectClient {
     if (this.onServerRequest !== null) {
       void this.onServerRequest(request);
     } else {
+      this.pendingToolName = toolName;
+      this.onNotification?.({
+        method: 'tool/use',
+        params: {
+          tool_name: toolName,
+          input: JSON.stringify(input).slice(0, 200),
+          status: 'started',
+          timestamp: Date.now(),
+        },
+      });
       return { behavior: 'allow', updatedInput: input };
     }
 
-    return await approvalPromise;
+    const result = await approvalPromise;
+    if (result.behavior === 'allow') {
+      this.pendingToolName = toolName;
+      this.onNotification?.({
+        method: 'tool/use',
+        params: {
+          tool_name: toolName,
+          input: JSON.stringify(input).slice(0, 200),
+          status: 'started',
+          timestamp: Date.now(),
+        },
+      });
+    }
+    return result;
   }
 
   private enqueuePrompt(message: QwenUserMessage): void {
