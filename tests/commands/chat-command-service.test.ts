@@ -338,6 +338,95 @@ test('shows and updates the bound project model through //model', async () => {
   assert.equal(projectConfig.model, 'gpt-5.4-mini');
 });
 
+test('shows and updates the bound project mode through //mode', async () => {
+  const bindingService = createBindingService();
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+
+  const projectConfig: {
+    projectInstanceId: string;
+    cwd?: string | null;
+    model?: string | null;
+    permissionMode?: string | null;
+    providers?: ProviderDescriptor[];
+  } = {
+    projectInstanceId: 'project-a',
+    cwd: '/tmp',
+    permissionMode: 'auto-edit',
+  };
+
+  const updates: Array<{ projectInstanceId: string; input: { permissionMode?: string | null } }> = [];
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject(id) {
+        return { projectInstanceId: id, configured: true, active: true, removed: false };
+      },
+      getProjectConfig(id) {
+        return id === 'project-a' ? projectConfig : null;
+      },
+      async updateProjectConfig(id, input) {
+        updates.push({ projectInstanceId: id, input });
+        if (input.permissionMode !== undefined) {
+          projectConfig.permissionMode = input.permissionMode ?? null;
+        }
+        return projectConfig;
+      },
+    },
+  });
+
+  const readLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//mode',
+  });
+
+  assert.deepEqual(readLines, ['[lark-agent-bridge] project mode: auto-edit']);
+
+  const planLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//mode plan',
+  });
+
+  assert.deepEqual(planLines, ['[lark-agent-bridge] project mode set to plan']);
+  assert.deepEqual(updates, [{ projectInstanceId: 'project-a', input: { permissionMode: 'plan' } }]);
+
+  const yoloLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//mode yolo',
+  });
+
+  assert.deepEqual(yoloLines, ['[lark-agent-bridge] project mode set to yolo']);
+
+  const invalidLines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//mode invalid',
+  });
+
+  assert.deepEqual(invalidLines, ['Usage: //mode <plan|auto-edit|yolo>']);
+});
+
+test('//mode shows not-bound message when chat is not bound', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      async describeProject() { return { projectInstanceId: '', configured: false, active: false, removed: false }; },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-b',
+    senderId: 'user-b',
+    text: '//mode plan',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] this chat is not bound to any project']);
+});
+
 test('returns bridge and codex state for //status on a bound chat', async () => {
   const bindingService = createBindingService();
   const registry = createProjectRegistry({
