@@ -169,6 +169,7 @@ pm2 delete lark-agent-bridge
 | `//resume <threadId\|last>` | 恢复 Codex 线程 |
 | `//new` | 启动新的 Codex 线程 |
 | `//model <name>` | 更新已绑定项目的模型 |
+| `//mode [plan|auto-edit|yolo]` | 设置项目的执行模式 |
 | `//help` | 显示帮助 |
 
 ### 审批命令

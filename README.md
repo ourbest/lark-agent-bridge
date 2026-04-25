@@ -171,6 +171,7 @@ Commands are sent in Feishu/Lark chat with the `//` prefix.
 | `//resume <threadId\|last>` | Resume a Codex thread |
 | `//new` | Start a fresh Codex thread |
 | `//model <name>` | Update the bound project's model |
+| `//mode [plan|auto-edit|yolo]` | Set the project execution mode |
 | `//help` | Show help |
 
 ### Approval Commands
