@@ -71,8 +71,11 @@ export function buildProjectReplyCard(input: {
   projectTitle: string;
   bodyMarkdown: string;
   footerItems: CardFooterItem[];
+  providerName?: string;
   subtitle?: string;
 }): FeishuInteractiveCardMessage {
+  const providerDisplayName = input.providerName || 'Claude Code';
+
   return buildInteractiveCardMessage({
     schema: '2.0',
     config: {
@@ -83,7 +86,7 @@ export function buildProjectReplyCard(input: {
     },
     header: {
       template: 'blue',
-      title: plainText(input.projectTitle),
+      title: plainText(`${input.projectTitle} | 🤖 ${providerDisplayName}`),
       subtitle: input.subtitle ? plainText(input.subtitle) : undefined,
     },
     body: {
@@ -106,6 +109,7 @@ export function buildBridgeStatusCard(input: {
   statusLabel: string;
   bodyMarkdown: string;
   footerItems?: CardFooterItem[];
+  providerName?: string;
   template?: 'blue' | 'turquoise' | 'green' | 'yellow' | 'red' | 'grey';
 }): FeishuInteractiveCardMessage {
   const elements: Array<Record<string, unknown>> = [
@@ -120,6 +124,8 @@ export function buildBridgeStatusCard(input: {
     elements.push(buildFooterMarkdown(input.footerItems));
   }
 
+  const providerDisplayName = input.providerName || 'Claude Code';
+
   return buildInteractiveCardMessage({
     schema: '2.0',
     config: {
@@ -130,7 +136,7 @@ export function buildBridgeStatusCard(input: {
     },
     header: {
       template: input.template ?? 'blue',
-      title: plainText(input.projectTitle),
+      title: plainText(`${input.projectTitle} | 🤖 ${providerDisplayName}`),
       subtitle: plainText(input.statusLabel),
     },
     body: {
@@ -139,9 +145,19 @@ export function buildBridgeStatusCard(input: {
   });
 }
 
+export function getModeIcon(mode: string | null | undefined): string {
+  switch (mode) {
+    case 'plan':      return '🟡 plan';
+    case 'yolo':      return '🔴 yolo';
+    case 'auto-edit': return '🟢 auto-edit';
+    default:          return '🟢 auto-edit';
+  }
+}
+
 export function buildAgentStatusCard(input: {
   projectId: string;
   statusLabel: string;
+  bodyMarkdown: string;
   rateBar: string;
   ratePercent: number;
   cwd: string;
@@ -152,33 +168,61 @@ export function buildAgentStatusCard(input: {
   gitDiffStat: string;
   backgroundTasks?: Array<{ id: string; name: string; status: string }>;
   footerItems?: CardFooterItem[];
+  permissionMode?: string;
+  providerName?: string;
   template?: 'blue' | 'turquoise' | 'green' | 'yellow' | 'red' | 'grey';
 }): FeishuInteractiveCardMessage {
-  const gitStatusIcon = input.gitStatus === 'modified' ? '✗' : input.gitStatus === 'clean' ? '✓' : '?';
-  const gitLine = `git: ${gitStatusIcon} | branch: ${input.gitBranch || '?'} | ${input.gitDiffStat || ''}`;
+  console.log(`[cards] buildAgentStatusCard: projectId=${input.projectId} rateBar=${input.rateBar} ratePercent=${input.ratePercent} cwd=${input.cwd} model=${input.model} sessionId=${input.sessionId} gitBranch=${input.gitBranch}`);
 
-  const bodyLines = [
-    `Rate: ${input.rateBar} ${input.ratePercent}% left`,
-    '',
-    `${input.cwd} | ${input.model} | ${input.sessionId}`,
-    gitLine,
-  ];
+  // Build agent status info for footer
+  const agentFooterItems: CardFooterItem[] = [];
+
+  // Only show git info if we have valid data (not unknown and have branch)
+  const showGitInfo = input.gitStatus !== 'unknown' && input.gitBranch;
+  if (showGitInfo) {
+    const gitStatusIcon = input.gitStatus === 'modified' ? '✗' : '✓';
+    const gitLine = `git: ${gitStatusIcon} | branch: ${input.gitBranch} | ${input.gitDiffStat || ''}`;
+    agentFooterItems.push({ label: '', value: gitLine });
+  }
+
+  if (input.cwd) agentFooterItems.push({ label: '', value: input.cwd });
+  if (input.model) agentFooterItems.push({ label: '', value: input.model });
+  if (input.sessionId) agentFooterItems.push({ label: '', value: input.sessionId });
+
+  if (input.permissionMode) {
+    agentFooterItems.push({ label: '', value: getModeIcon(input.permissionMode) });
+  }
 
   if (input.backgroundTasks && input.backgroundTasks.length > 0) {
     const taskSummary = input.backgroundTasks
       .map(t => `${t.name} [${t.status}]`)
       .join(' | ');
-    bodyLines.push(taskSummary);
+    agentFooterItems.push({ label: '', value: taskSummary });
   }
 
+  // Combine statusLabel with rate info in subtitle (only if rate data is valid)
+  const hasValidRate = input.rateBar !== '[????????????????????]' && Number.isFinite(input.ratePercent);
+  const subtitle = hasValidRate
+    ? `${input.statusLabel} | ${input.rateBar} ${input.ratePercent}% left`
+    : input.statusLabel;
+
+  // Body shows what's being processed
   const elements: Array<Record<string, unknown>> = [
-    { tag: 'markdown', content: bodyLines.join('\n') },
+    { tag: 'markdown', content: input.bodyMarkdown },
   ];
 
-  if (input.footerItems !== undefined && input.footerItems.length > 0) {
+  // Merge footerItems and agentFooterItems
+  const allFooterItems = [
+    ...(input.footerItems ?? []),
+    ...agentFooterItems,
+  ];
+
+  if (allFooterItems.length > 0) {
     elements.push({ tag: 'hr' });
-    elements.push(buildFooterMarkdown(input.footerItems));
+    elements.push(buildFooterMarkdown(allFooterItems));
   }
+
+  const providerDisplayName = input.providerName || 'Claude Code';
 
   return buildInteractiveCardMessage({
     schema: '2.0',
@@ -190,8 +234,8 @@ export function buildAgentStatusCard(input: {
     },
     header: {
       template: input.template ?? 'blue',
-      title: plainText(`${input.projectId} | 🤖 Claude Code`),
-      subtitle: plainText(input.statusLabel),
+      title: plainText(`${input.projectId} | 🤖 ${providerDisplayName}`),
+      subtitle: plainText(subtitle),
     },
     body: {
       elements,
@@ -520,6 +564,86 @@ export function buildThreadListCard(input: {
   });
 }
 
+export function buildUnknownCommandCard(input: {
+  unknownCommand: string;
+  bridgeCommands: Array<{ command: string; description: string }>;
+  codexCommands: Array<{ command: string; description: string }>;
+  projectId: string;
+  statusLabel: string;
+  rateBar: string;
+  ratePercent: number;
+  cwd: string;
+  model: string;
+  sessionId: string;
+  gitStatus: 'modified' | 'clean' | 'unknown';
+  gitBranch: string;
+  gitDiffStat: string;
+  backgroundTasks?: Array<{ id: string; name: string; status: string }>;
+}): FeishuInteractiveCardMessage {
+  const bridgeMarkdown = [
+    '## 桥接命令',
+    ...input.bridgeCommands.map((item) => `- \`${item.command}\`  \n  ${item.description}`),
+  ].join('\n');
+
+  const codexMarkdown = [
+    '## Codex 命令',
+    ...input.codexCommands.map((item) => `- \`${item.command}\`  \n  ${item.description}`),
+  ].join('\n');
+
+  const hasValidRate = input.rateBar !== '[????????????????????]' && Number.isFinite(input.ratePercent);
+  const subtitle = hasValidRate
+    ? `${input.statusLabel} | ${input.rateBar} ${input.ratePercent}% left`
+    : input.statusLabel;
+
+  // Only show git info if we have valid data (not unknown and have branch)
+  const agentFooterItems: CardFooterItem[] = [];
+  const showGitInfo = input.gitStatus !== 'unknown' && input.gitBranch;
+  if (showGitInfo) {
+    const gitStatusIcon = input.gitStatus === 'modified' ? '✗' : '✓';
+    const gitLine = `git: ${gitStatusIcon} | branch: ${input.gitBranch} | ${input.gitDiffStat || ''}`;
+    agentFooterItems.push({ label: '', value: gitLine });
+  }
+
+  if (input.cwd) agentFooterItems.push({ label: '', value: input.cwd });
+  if (input.model) agentFooterItems.push({ label: '', value: input.model });
+  if (input.sessionId) agentFooterItems.push({ label: '', value: input.sessionId });
+
+  if (input.backgroundTasks && input.backgroundTasks.length > 0) {
+    const taskSummary = input.backgroundTasks
+      .map(t => `${t.name} [${t.status}]`)
+      .join(' | ');
+    agentFooterItems.push({ label: '', value: taskSummary });
+  }
+
+  const elements: Array<Record<string, unknown>> = [
+    { tag: 'markdown', content: bridgeMarkdown },
+    { tag: 'hr' },
+    { tag: 'markdown', content: codexMarkdown },
+  ];
+
+  if (agentFooterItems.length > 0) {
+    elements.push({ tag: 'hr' });
+    elements.push(buildFooterMarkdown(agentFooterItems));
+  }
+
+  return buildInteractiveCardMessage({
+    schema: '2.0',
+    config: {
+      enable_forward: true,
+      update_multi: true,
+      width_mode: 'fill',
+    },
+    header: {
+      template: 'red',
+      title: plainText(`unknown command | ${input.projectId}`),
+      subtitle: plainText(subtitle),
+    },
+    body: {
+      elements,
+    },
+  });
+}
+
 export function buildHelpCard(input: {
   title?: string;
   subtitle?: string;
@@ -639,6 +763,39 @@ export function buildUnavailableProjectCard(input: {
     bodyMarkdown: buildCodeBlockMarkdown(input.lines),
     footerItems: input.footerItems,
     template: 'red',
+  });
+}
+
+export function buildRateLimitCard(input: {
+  projectId: string;
+  providerName?: string;
+  retryAfterSeconds?: number;
+  footerItems?: CardFooterItem[];
+}): FeishuInteractiveCardMessage {
+  const retryHint = input.retryAfterSeconds !== undefined
+    ? `\n\n> 可在 **${input.retryAfterSeconds} 秒** 后重试`
+    : '\n\n> 请稍后重试';
+
+  const bodyMarkdown = [
+    '## ⚠️ Rate Limit Exceeded',
+    '',
+    `Provider: **${input.providerName ?? '当前 Provider'}**`,
+    '',
+    `${input.providerName ?? '当前 Provider'} 请求频率超限，请稍后再试。`,
+    retryHint,
+    '',
+    '常见解决方法：',
+    '- 切换到其他 Provider（`//provider codex`、`//provider cc`、`//provider qwen` 或 `//provider gemini`）',
+    '- 等待几分钟后再发送消息',
+  ].join('\n');
+
+  return buildBridgeStatusCard({
+    projectTitle: input.projectId,
+    providerName: input.providerName,
+    statusLabel: 'Rate Limited',
+    bodyMarkdown,
+    footerItems: input.footerItems,
+    template: 'yellow',
   });
 }
 
