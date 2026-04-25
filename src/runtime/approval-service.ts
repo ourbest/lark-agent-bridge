@@ -51,6 +51,7 @@ export interface ApprovalService {
   getCardMessageId(requestId: number | string): string | null;
   handleAction(input: ApprovalActionInput): Promise<ApprovalActionResult | null>;
   handleCommand(input: { sessionId: string; text: string }): Promise<string[] | null>;
+  setSessionMode(sessionId: string, mode: 'yolo' | 'auto-edit' | 'plan'): void;
 }
 
 export interface ApprovalServiceOptions {
@@ -284,6 +285,7 @@ function normalizeActionStatus(action: ApprovalActionKind): 'approved' | 'approv
 export function createApprovalService(options: ApprovalServiceOptions = {}): ApprovalService {
   const pendingRequests = new Map<string, PendingRequest>();
   const autoApprovalExpiryBySession = new Map<string, number>();
+  const yoloSessions = new Set<string>();
   const now = options.now ?? Date.now;
 
   function isAutoApprovalActive(sessionId: string): boolean {
@@ -364,6 +366,14 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
       }
 
       pendingRequests.set(String(input.requestId), request);
+
+      // Auto-approve yolo sessions immediately
+      if (yoloSessions.has(input.sessionId)) {
+        const result: ApprovalResponse = { decision: 'acceptForSession' };
+        await input.respond(input.requestId, result);
+        return { lines: ['[lark-agent-bridge] yolo auto-approved'], card: null };
+      }
+
       return {
         lines: buildAnnouncementLines(request),
         card: buildApprovalCard({
@@ -515,6 +525,14 @@ export function createApprovalService(options: ApprovalServiceOptions = {}): App
       }
 
       return [`[lark-agent-bridge] approved request ${parsed.requestId}`];
+    },
+
+    setSessionMode(sessionId: string, mode: 'yolo' | 'auto-edit' | 'plan'): void {
+      if (mode === 'yolo') {
+        yoloSessions.add(sessionId);
+      } else {
+        yoloSessions.delete(sessionId);
+      }
     },
   };
 }
