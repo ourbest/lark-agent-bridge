@@ -211,7 +211,7 @@ export class ClaudeCodeClient implements CodexProjectClient {
         break;
 
       case 'user':
-        // Tool result returned - forward as notification
+        // Tool use/result notifications - forward as notification
         if (msg.message?.content) {
           for (const block of msg.message.content) {
             if (block.type === 'tool_use') {
@@ -229,7 +229,6 @@ export class ClaudeCodeClient implements CodexProjectClient {
                 method: 'tool/use',
                 params: {
                   tool_name: block.tool_name,
-                  input: block.input,
                   output: (block as { text?: string }).text,
                   status: 'completed',
                   timestamp: Date.now(),
