@@ -532,7 +532,7 @@ export class CodexAppServerClient {
           timestamp: Date.now(),
         },
       });
-    }
+      return;
 
     if (message.method === 'item/agentMessage/delta') {
       if (this.currentReplyAborted) {
