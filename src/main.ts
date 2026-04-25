@@ -383,12 +383,26 @@ export async function run(): Promise<void> {
         if (entry === undefined) {
           return null;
         }
+
         if (input.model !== undefined) {
-          entry.model = input.model;
+          const normalizedModel = input.model.trim();
+          if (normalizedModel === '') {
+            delete entry.model;
+          } else {
+            entry.model = normalizedModel;
+          }
         }
+
         if (input.permissionMode !== undefined) {
           entry.permissionMode = input.permissionMode;
         }
+
+        writeProjectsFile(projectsFilePath, projectConfigEntries);
+
+        if (projectRegistryImpl !== null) {
+          await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
+        }
+
         return entry;
       },
       async startThread(projectInstanceId: string, options?: { cwd?: string; force?: boolean }) {
