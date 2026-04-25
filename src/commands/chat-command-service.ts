@@ -472,8 +472,8 @@ async function updateProjectModeLines(
   }
 
   if (mode === undefined) {
-    const currentMode = projectConfig.permissionMode ?? 'auto-edit';
-    return [`[lark-agent-bridge] project mode: ${currentMode}`];
+    const currentMode = projectConfig.permissionMode;
+    return currentMode ? [`[lark-agent-bridge] project mode: ${currentMode}`] : ['[lark-agent-bridge] project mode is not configured'];
   }
 
   const normalizedMode = mode.trim().toLowerCase();
