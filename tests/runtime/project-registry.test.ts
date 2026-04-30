@@ -21,7 +21,7 @@ function createProviderMockClient(provider: string, stopCalls: string[]): CodexP
   };
 }
 
-test('creates connection when first binding is created', async () => {
+test('creates connection lazily on first message, not at binding time', async () => {
   const startCalls: Array<{ cwd?: string }> = [];
   const registry = createProjectRegistry({
     getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
@@ -35,11 +35,17 @@ test('creates connection when first binding is created', async () => {
     }),
   });
 
+  // Binding alone must NOT start the provider (lazy loading)
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+  assert.deepEqual(startCalls, []);
 
+  // First message handler: provider is created (lazy), but thread is not started
+  // for fresh sessions - generateReply handles fresh session internally
   const handler = registry.getHandler('project-a');
   assert.ok(handler !== null);
-  assert.deepEqual(startCalls, [{ cwd: '/repo/project-a' }]);
+  const reply = await handler!({ projectInstanceId: 'project-a', message: { text: 'hello' } });
+  assert.equal(reply?.text, 'reply to hello');
+  assert.deepEqual(startCalls, []); // startThread not called for fresh sessions under lazy loading
 });
 
 test('exposes default providers and the initial active provider', async () => {
@@ -91,12 +97,11 @@ test('switches active providers without stopping already-started inactive provid
   });
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
-  assert.deepEqual(createCalls, [{ provider: 'codex', port: undefined }]);
+  assert.deepEqual(createCalls, []); // binding alone doesn't start provider
 
   await registry.setActiveProvider('project-a', 'qwen');
   assert.equal(await registry.getActiveProvider('project-a'), 'qwen');
-  assert.deepEqual(createCalls, [{ provider: 'codex', port: undefined }]);
-  assert.deepEqual(stopCalls, []);
+  assert.deepEqual(createCalls, []); // still nothing started
 
   const handler = registry.getHandler('project-a');
   assert.ok(handler !== null);
@@ -106,8 +111,8 @@ test('switches active providers without stopping already-started inactive provid
   });
 
   assert.equal(reply?.text, 'qwen:hello');
-  assert.equal(createCalls[1]?.provider, 'qwen');
-  assert.equal(typeof createCalls[1]?.port, 'number');
+  assert.equal(createCalls[0]?.provider, 'qwen');
+  assert.equal(typeof createCalls[0]?.port, 'number');
 });
 
 test('reuses a started provider when switching back to it', async () => {
@@ -275,6 +280,11 @@ test('maps codex notifications to project status updates', async () => {
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
 
+  // Trigger lazy client creation
+  const handler = registry.getHandler('project-a');
+  assert.ok(handler !== null);
+  await handler!({ projectInstanceId: 'project-a', message: { text: 'trigger' } });
+
   assert.ok(client);
   await client!.onNotification?.({ method: 'turn/started' });
   await client!.onNotification?.({ method: 'turn/completed', params: { turn: { status: 'completed' } } });
@@ -309,6 +319,11 @@ test('forwards text deltas and activity summaries for active project sessions', 
   });
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+
+  // Trigger lazy client creation
+  const handler = registry.getHandler('project-a');
+  assert.ok(handler !== null);
+  await handler!({ projectInstanceId: 'project-a', message: { text: 'trigger' } });
 
   assert.ok(client);
   client!.onTextDelta?.('partial reply');
@@ -384,6 +399,11 @@ test('captures failure reasons from codex notifications in project diagnostics',
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
 
+  // Trigger lazy client creation
+  const handler = registry.getHandler('project-a');
+  assert.ok(handler !== null);
+  await handler!({ projectInstanceId: 'project-a', message: { text: 'trigger' } });
+
   assert.ok(client);
   await client!.onNotification?.({
     method: 'error',
@@ -432,7 +452,9 @@ test('restores a persisted binding by resuming the last thread', async () => {
   assert.deepEqual(startCalls, []);
 });
 
-test('falls back to a fresh thread when the saved thread no longer exists', async () => {
+test('does not fall back to fresh thread when saved thread is missing - lazy loading instead', async () => {
+  // When resume fails with "no rollout found", we no longer fall back to startThread.
+  // Instead we return early and let the provider be started lazily on first message.
   const startCalls: Array<{ cwd?: string; force?: boolean }> = [];
   const resumeCalls: Array<{ threadId: string; cwd?: string }> = [];
   const registry = createProjectRegistry({
@@ -455,7 +477,7 @@ test('falls back to a fresh thread when the saved thread no longer exists', asyn
   await registry.restoreBinding('project-a', 'chat-1');
 
   assert.deepEqual(resumeCalls, [{ threadId: 'thr_missing', cwd: '/repo/project-a' }]);
-  assert.deepEqual(startCalls, [{ cwd: '/repo/project-a', force: true }]);
+  assert.deepEqual(startCalls, []); // no startThread call - lazy loading handles fresh session on first message
 });
 
 test('starts a fresh thread on demand for an active project', async () => {
@@ -473,11 +495,13 @@ test('starts a fresh thread on demand for an active project', async () => {
   });
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+  // Binding doesn't start thread (lazy loading) - thread is only started when explicitly requested
+  assert.deepEqual(startCalls, []);
+
   const threadId = await registry.startThread('project-a', { cwd: '/repo/project-a', force: true });
 
-  assert.equal(threadId, 'thr_2');
+  assert.equal(threadId, 'thr_1'); // first and only startThread call
   assert.deepEqual(startCalls, [
-    { cwd: '/repo/project-a', force: true },
     { cwd: '/repo/project-a', force: true },
   ]);
 });
@@ -492,7 +516,18 @@ test('does not reconnect if project already connected', async () => {
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-2' });
 
+  // binding doesn't create connection; lazy loading means 0 until handler is called
+  assert.equal(createCount.count, 0);
+
+  // first message triggers provider creation
+  const handler1 = registry.getHandler('project-a');
+  await handler1!({ projectInstanceId: 'project-a', message: { text: 'hello' } });
   assert.equal(createCount.count, 1);
+
+  // second binding doesn't reconnect
+  const handler2 = registry.getHandler('project-a');
+  await handler2!({ projectInstanceId: 'project-a', message: { text: 'hi' } });
+  assert.equal(createCount.count, 1); // still 1, no reconnection
 });
 
 test('disconnects when last binding is removed', async () => {
@@ -631,6 +666,7 @@ test('recreates an active project client when its config changes', async () => {
 
   await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
 
+  // First message triggers provider creation (lazy) - client is created with current config
   const handler = registry.getHandler('project-a');
   assert.ok(handler !== null);
   const reply = await handler!({
@@ -638,8 +674,8 @@ test('recreates an active project client when its config changes', async () => {
     message: { text: 'hello' },
   });
 
-  assert.deepEqual(createdConfigs, ['stdio:/repo/one', 'stdio:/repo/two']);
-  assert.deepEqual(stopCalls, ['stdio:/repo/one']);
+  assert.deepEqual(createdConfigs, ['stdio:/repo/two']); // only one client created lazily
+  assert.deepEqual(stopCalls, []); // no old client was running to stop
   assert.equal(reply?.text, 'reply:stdio:/repo/two:hello');
 });
 

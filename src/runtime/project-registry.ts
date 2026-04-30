@@ -423,12 +423,6 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
     activeProjects.set(projectId, entry);
 
-    if (options.router) {
-      options.router.registerProjectHandler(projectId, async ({ message }) => {
-        return await runProjectReply(projectId, entry, message);
-      });
-    }
-
     return entry;
   }
 
@@ -574,17 +568,28 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           return;
         }
 
-        const { entry, created } = prepared;
+        const { entry } = prepared;
         markProjectKnown(event.projectId);
         const isNewSession = !entry.sessions.has(event.sessionId);
         entry.sessions.add(event.sessionId);
         entry.bindingCount = entry.sessions.size;
 
-        if (bindingOptions?.restore === true && isNewSession) {
-          if (options.getLastThread !== undefined) {
-            const lastThread = options.getLastThread(event.projectId, event.sessionId);
+        // Always register handler for this project so messages can be routed.
+        // The handler lazily starts the provider on first message via ensureActiveClient().
+        options.router?.registerProjectHandler(event.projectId, async ({ message }) => {
+          return await runProjectReply(event.projectId, entry, message);
+        });
+
+        // For restore=true with an existing lastThread, attempt to resume it.
+        const isRestoreWithThread =
+          bindingOptions?.restore === true &&
+          isNewSession &&
+          options.getLastThread !== undefined;
+        if (isRestoreWithThread) {
+          const lastThread = options.getLastThread(event.projectId, event.sessionId);
+          if (lastThread !== null) {
             const activeClient = await entry.providerManager.ensureActiveClient();
-            if (lastThread !== null && activeClient.resumeThread !== undefined) {
+            if (activeClient.resumeThread !== undefined) {
               try {
                 await resumeThreadForEntry(event.projectId, entry, lastThread);
                 return;
@@ -597,24 +602,18 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
                 if (!shouldFallbackToFreshThread(error)) {
                   throw error;
                 }
+                // Fallback allowed: return without starting fresh thread,
+                // lazy loading handles it when message arrives.
+                return;
               }
             }
           }
         }
 
-        const activeClient = await entry.providerManager.ensureActiveClient();
-        if ((created || isNewSession) && activeClient.startThread !== undefined) {
-          try {
-            await startThreadForEntry(event.projectId, entry, { cwd: entry.config.cwd, force: true });
-          } catch (error) {
-            setProjectDiagnostics(event.projectId, {
-              status: 'failed',
-              reason: toErrorMessage(error),
-              source: 'startThread',
-            });
-            throw error;
-          }
-        }
+        // For fresh sessions (restore=false, or restore=true but no lastThread):
+        // do NOT start provider here - it will be started lazily on first
+        // message via the registered handler above.
+        return;
       }
 
       if ((event.type === 'session-unbound' || event.type === 'unbound') && (event.projectId || event.sessionId)) {

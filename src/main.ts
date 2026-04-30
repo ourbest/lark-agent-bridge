@@ -25,7 +25,6 @@ import type { ProviderDescriptor } from './runtime/provider-registry.ts';
 import { createProjectConfigWatcher } from './runtime/project-config-watcher.ts';
 import { createProjectManagementService } from './runtime/project-management-service.ts';
 import { loadProjectConfigs } from './runtime/project-discovery.ts';
-import { restoreBoundProjects } from './runtime/binding-restoration.ts';
 import { resolveFeishuRuntimeConfig } from './runtime/feishu-config.ts';
 import { formatCodexCommandResult } from './runtime/codex-command-formatting.ts';
 import { createFeishuWebSocketTransport } from './adapters/lark/feishu-websocket.ts';
@@ -850,14 +849,9 @@ export async function run(): Promise<void> {
         return;
       }
       await projectRegistryImpl.reconcileProjectConfigs(projectConfigEntries);
-      await restoreBoundProjects({
-        bindingService: app.bindingService,
-        projectRegistry: projectRegistryImpl,
-        onError: ({ projectInstanceId, sessionId, error }) => {
-          const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
-          console.warn(`[lark-agent-bridge] skipped restoring binding: project=${projectInstanceId} session=${sessionId} reason="${reason}"`);
-        },
-      });
+      // Do NOT restore bindings here - providers are started lazily on first message.
+      // If bindings need to be re-established after a config change, the normal
+      // message routing flow will handle it via restoreBinding.
     },
   });
   reloadProjectsHandler = async () => {
@@ -883,14 +877,10 @@ export async function run(): Promise<void> {
   console.log(`[lark-agent-bridge] project registry active for ${projectConfigEntries.length} project${projectConfigEntries.length === 1 ? '' : 's'}`);
 
   await app.start();
-  await restoreBoundProjects({
-    bindingService: app.bindingService,
-    projectRegistry: projectRegistryImpl,
-    onError: ({ projectInstanceId, sessionId, error }) => {
-      const reason = error instanceof Error && error.message !== '' ? error.message : String(error ?? 'unknown error');
-      console.warn(`[lark-agent-bridge] skipped restoring binding: project=${projectInstanceId} session=${sessionId} reason="${reason}"`);
-    },
-  });
+  // Restore projects lazily on first message, not at startup.
+  // restoreBoundProjects is removed here so no provider auto-starts.
+  // When a message arrives for a bound project, the router calls
+  // restoreBinding which handles restore lazily (onBindingChanged with restore=true).
   await projectConfigWatcher.start();
 
   // Send startup notification to specified openId
