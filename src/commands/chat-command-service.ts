@@ -45,6 +45,11 @@ export interface ProjectProviderSummary extends ProviderDescriptor {
 
 export interface ChatCommandServiceDependencies {
   bindingService: BindingService;
+  muteService?: {
+    isMuted(sessionId: string): boolean;
+    mute(sessionId: string): void;
+    unmute(sessionId: string): void;
+  };
   projectRegistry: {
     describeProject(projectInstanceId: string): Promise<ProjectState>;
     getProjectConfig?(projectInstanceId: string): { cwd?: string | null; model?: string | null; providers?: ProviderDescriptor[] | null; activeProvider?: string | null } | null;
@@ -74,7 +79,7 @@ export interface ChatCommandService {
 }
 
 function isBridgeCommandToken(token: string): boolean {
-  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'abort' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'mode' || token === 'projects' || token === 'providers' || token === 'provider' || token === 'project' || token === 'approve-test' || token === 'thread';
+  return token === 'bind' || token === 'unbind' || token === 'list' || token === 'help' || token === 'status' || token === 'sessions' || token === 'read' || token === 'restart' || token === 'abort' || token === 'reload' || token === 'resume' || token === 'new' || token === 'model' || token === 'mode' || token === 'projects' || token === 'providers' || token === 'provider' || token === 'project' || token === 'approve-test' || token === 'thread' || token === 'mute';
 }
 
 function isCodexCommandToken(token: string): boolean {
@@ -137,6 +142,7 @@ function buildHelpLines(): string[] {
     '  //thread cancel <id> - cancel a background task',
     '  //thread pause <id>  - pause a background task',
     '  //thread resume <id> - resume a background task',
+    '  //mute on|off       - mute this chat (bot responds only when @mentioned)',
     '  //help              - show this help',
     '  //app/list          - list codex apps',
     '  //session/list      - list codex sessions',
@@ -946,6 +952,28 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
               '  //thread pause <id>   - pause a task',
               '  //thread resume <id>  - resume a task',
             ];
+          }
+
+          case 'mute': {
+            if (dependencies.muteService === undefined) {
+              return ['[lark-agent-bridge] mute is not configured'];
+            }
+
+            if (parsed.args.length === 0) {
+              const muted = dependencies.muteService.isMuted(input.sessionId);
+              return [`[lark-agent-bridge] mute: ${muted ? 'on' : 'off'}`];
+            }
+
+            const action = parsed.args[0]?.toLowerCase();
+            if (action === 'on') {
+              dependencies.muteService.mute(input.sessionId);
+              return ['[lark-agent-bridge] mute enabled — bot will not respond until //mute off (requires @mention)'];
+            } else if (action === 'off') {
+              dependencies.muteService.unmute(input.sessionId);
+              return ['[lark-agent-bridge] mute disabled'];
+            }
+
+            return ['Usage: //mute on|off'];
           }
 
           case 'help':

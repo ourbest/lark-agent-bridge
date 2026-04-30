@@ -127,6 +127,7 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
 
         let text = '';
         let attachments: InboundAttachment[] | undefined;
+        let mentioned = false;
         const msgType = msg.message_type ?? '';
 
         console.log(`[feishu] message received: msgType=${msgType}, chatId=${msg.chat_id}, messageId=${msg.message_id}, contentLength=${msg.content?.length ?? 0}`);
@@ -194,6 +195,8 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
                   for (const item of block) {
                     if (item.tag === 'text' && typeof item.text === 'string') {
                       parts.push(item.text);
+                    } else if (item.tag === 'at' && item.user_id) {
+                      mentioned = true;
                     } else if (item.tag === 'img' && item.image_key) {
                       imgs.push({
                         fileKey: item.image_key,
@@ -236,6 +239,7 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
           text,
           senderId: data.sender?.sender_id?.open_id ?? '',
           timestamp: msg.create_time ?? '',
+          mentioned,
         };
 
         if (attachments !== undefined) {

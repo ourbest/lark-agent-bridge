@@ -18,6 +18,7 @@ import type { ProjectConfig } from './runtime/project-registry.ts';
 import { AgentStatusManager, type ToolCallEntry } from './runtime/agent-status.ts';
 import { readCodexStatusLines } from './runtime/codex-status.ts';
 import { getProviderDisplayName } from './runtime/provider-registry.ts';
+import { createMuteService } from './runtime/mute-service.ts';
 import {
   buildBridgeStatusCard,
   buildCommandResultCard,
@@ -87,6 +88,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//approve-auto <minutes>', description: 'Auto-approve approval requests in this chat for N minutes.' },
   { command: '//approve-test', description: 'Create a test approval card for manual button checks.' },
   { command: '//deny <id>', description: 'Deny a pending request.' },
+  { command: '//mute on|off', description: 'Mute this chat (bot responds only when @mentioned).' },
   { command: '//help', description: 'Show this help card.' },
 ] as const;
 
@@ -546,8 +548,10 @@ export function createBridgeApp(options: {
   const apiServer = createApiServer({
     bindingService,
   });
+  const muteService = createMuteService();
   const chatCommandService = createChatCommandService({
     bindingService,
+    muteService,
     projectRegistry: {
       ...options.projectRegistry,
       listProjectProviders: options.projectRegistry.getProjectProviders,
@@ -846,6 +850,14 @@ export function createBridgeApp(options: {
     }
 
     const text = message.text.trim();
+
+    // Check mute state: if muted and not @mentioned, ignore all messages including //mute
+    // Even //mute on/off requires @mention to avoid multi-bot conflicts
+    if (muteService.isMuted(message.sessionId) && !message.mentioned) {
+      console.log(`[bridge] session ${message.sessionId} is muted, ignoring message`);
+      return;
+    }
+
     if (text.startsWith('//')) {
       const readCommand = parseReadCommand(text);
       if (readCommand !== null) {

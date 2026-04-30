@@ -25,6 +25,7 @@ test('normalizes a lark event into an inbound bridge message', () => {
     text: 'hello',
     senderId: 'user-a',
     timestamp: '2026-03-29T00:00:00.000Z',
+    mentioned: undefined,
   });
 });
 

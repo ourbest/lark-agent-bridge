@@ -576,7 +576,22 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
 
         // Always register handler for this project so messages can be routed.
         // The handler lazily starts the provider on first message via ensureActiveClient().
+        // It also attempts to resume the saved thread on each invocation so that
+        // if the initial resume (in onBindingChanged) failed, subsequent messages
+        // can still recover the thread.
         options.router?.registerProjectHandler(event.projectId, async ({ message }) => {
+          // Try to resume saved thread if client has no thread yet.
+          // This is safe to call multiple times (idempotent).
+          if (options.getLastThread !== undefined) {
+            const savedThread = options.getLastThread(event.projectId, event.sessionId);
+            if (savedThread !== null) {
+              try {
+                await entry.client.resumeThread({ threadId: savedThread, cwd: entry.config.cwd });
+              } catch {
+                // Resume failed - runProjectReply will create a new thread via ensureThread
+              }
+            }
+          }
           return await runProjectReply(event.projectId, entry, message);
         });
 

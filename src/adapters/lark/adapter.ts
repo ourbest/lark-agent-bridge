@@ -9,6 +9,8 @@ export interface LarkEventPayload {
   senderId: string;
   timestamp: string;
   attachments?: InboundAttachment[];
+  /** 是否 @mention 了机器人 */
+  mentioned?: boolean;
   cardAction?: {
     action: 'approve' | 'approve-all' | 'approve-auto' | 'deny';
     requestId: string;
@@ -86,6 +88,7 @@ export class LarkAdapter {
       text: event.text,
       senderId: event.senderId,
       timestamp: event.timestamp,
+      mentioned: event.mentioned,
     };
 
     if (event.attachments !== undefined) {
