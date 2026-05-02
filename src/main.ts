@@ -1,4 +1,6 @@
 import { createReadStream } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import https from 'node:https';
 import 'dotenv/config';
@@ -896,6 +898,48 @@ export async function run(): Promise<void> {
     } catch (err) {
       console.warn(`[lark-agent-bridge] failed to send startup notification:`, err);
     }
+  }
+
+  // File watcher for ~/lark folder - sends files to startupNotifyOpenId
+  if (process.env.BRIDGE_FILE_WATCH_ENABLED === '1' && startupNotifyOpenId) {
+    const { FileWatcherService } = await import('./runtime/file-watcher.ts');
+    const watchDir = process.env.BRIDGE_FILE_WATCH_DIR
+      ? path.resolve(os.homedir(), process.env.BRIDGE_FILE_WATCH_DIR.replace(/^~\//, ''))
+      : path.join(os.homedir(), 'lark');
+
+    const fileWatcher = new FileWatcherService({
+      enabled: true,
+      watchDir,
+      openId: startupNotifyOpenId,
+      pollIntervalMs: 2000,
+      maxWaitMs: 300_000,
+    }, {
+      sendFileFn: async ({ receiveId, filePath }) => {
+        const fileName = path.basename(filePath);
+        const uploadResponse = await restClient.im.v1.file.create({
+          data: {
+            file_type: 'stream',
+            file_name: fileName,
+            file: createReadStream(filePath),
+          },
+        });
+        const fileKey = uploadResponse?.file_key;
+        if (fileKey === undefined || fileKey === '') {
+          throw new Error('Feishu file upload did not return a file_key');
+        }
+        await restClient.im.v1.message.create({
+          data: {
+            receive_id: receiveId,
+            msg_type: 'file',
+            content: JSON.stringify({ file_key: fileKey }),
+          },
+          params: {
+            receive_id_type: 'open_id',
+          },
+        });
+      },
+    });
+    fileWatcher.start();
   }
 
   let keepAlive: NodeJS.Timeout | null = null;
