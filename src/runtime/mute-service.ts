@@ -1,3 +1,5 @@
+import type { MuteStateStore } from '../storage/binding-store.ts';
+
 /**
  * MuteService - manages session-level mute state for Lark chat sessions.
  * When a session is muted, the bridge will not respond to regular messages,
@@ -11,28 +13,26 @@ export interface MuteService {
   toggle(sessionId: string): boolean;
 }
 
-export function createMuteService(): MuteService {
-  const mutedSessions = new Set<string>();
-
+export function createMuteService(store?: MuteStateStore): MuteService {
   return {
     isMuted(sessionId: string): boolean {
-      return mutedSessions.has(sessionId);
+      return store ? store.isMuted(sessionId) : false;
     },
 
     mute(sessionId: string): void {
-      mutedSessions.add(sessionId);
+      store?.mute(sessionId);
     },
 
     unmute(sessionId: string): void {
-      mutedSessions.delete(sessionId);
+      store?.unmute(sessionId);
     },
 
     toggle(sessionId: string): boolean {
-      if (mutedSessions.has(sessionId)) {
-        mutedSessions.delete(sessionId);
+      if (store?.isMuted(sessionId)) {
+        store.unmute(sessionId);
         return false;
       } else {
-        mutedSessions.add(sessionId);
+        store?.mute(sessionId);
         return true;
       }
     },

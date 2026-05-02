@@ -20,18 +20,19 @@ function ensureDirectory(filePath: string): void {
 
 function readSnapshot(filePath: string): BindingSnapshot {
   if (!fs.existsSync(filePath)) {
-    return { bindings: [], threadMemories: [], projectStates: [] };
+    return { bindings: [], threadMemories: [], projectStates: [], mutedSessions: [] };
   }
 
   const raw = fs.readFileSync(filePath, 'utf8');
   if (raw.trim() === '') {
-    return { bindings: [], threadMemories: [], projectStates: [] };
+    return { bindings: [], threadMemories: [], projectStates: [], mutedSessions: [] };
   }
 
   const parsed = JSON.parse(raw) as Partial<BindingSnapshot>;
   const bindings = Array.isArray(parsed.bindings) ? parsed.bindings : [];
   const threadMemories = Array.isArray(parsed.threadMemories) ? parsed.threadMemories : [];
   const projectStates = Array.isArray(parsed.projectStates) ? parsed.projectStates : [];
+  const mutedSessions = Array.isArray(parsed.mutedSessions) ? parsed.mutedSessions.filter((id): id is string => typeof id === 'string') : [];
   return {
     bindings: bindings
       .filter((entry): entry is BindingRecord => {
@@ -86,6 +87,7 @@ function readSnapshot(filePath: string): BindingSnapshot {
           ? { startedProviders: entry.startedProviders.filter((value): value is string => typeof value === 'string' && value.trim() !== '') }
           : {}),
       })),
+    mutedSessions,
   };
 }
 
@@ -103,7 +105,7 @@ function cloneProjectState(state: BridgeProjectStateRecord): BridgeProjectStateR
   };
 }
 
-export class JsonBindingStore implements BindingStore, ThreadMemoryStore, BridgeStateStore {
+export class JsonBindingStore implements BindingStore, ThreadMemoryStore, BridgeStateStore, MuteStateStore {
   private readonly filePath: string;
   private snapshot: BindingSnapshot;
 
@@ -227,5 +229,25 @@ export class JsonBindingStore implements BindingStore, ThreadMemoryStore, Bridge
   deleteProjectState(projectInstanceId: string): void {
     this.removeProjectState(projectInstanceId);
     this.persist();
+  }
+
+  isMuted(sessionId: string): boolean {
+    return this.snapshot.mutedSessions.includes(sessionId);
+  }
+
+  mute(sessionId: string): void {
+    if (!this.snapshot.mutedSessions.includes(sessionId)) {
+      this.snapshot.mutedSessions.push(sessionId);
+      this.persist();
+    }
+  }
+
+  unmute(sessionId: string): void {
+    this.snapshot.mutedSessions = this.snapshot.mutedSessions.filter((id) => id !== sessionId);
+    this.persist();
+  }
+
+  getAllMutedSessions(): string[] {
+    return [...this.snapshot.mutedSessions];
   }
 }

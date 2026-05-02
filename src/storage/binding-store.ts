@@ -1,3 +1,10 @@
+export interface MuteStateStore {
+  isMuted(sessionId: string): boolean;
+  mute(sessionId: string): void;
+  unmute(sessionId: string): void;
+  getAllMutedSessions(): string[];
+}
+
 export interface BindingStore {
   getSessionByProject(projectInstanceId: string): string | null;
   getProjectBySession(sessionId: string): string | null;
@@ -41,12 +48,13 @@ export interface BridgeStateStore {
   deleteProjectState(projectInstanceId: string): void;
 }
 
-export class InMemoryBindingStore implements BindingStore {
+export class InMemoryBindingStore implements BindingStore, ThreadMemoryStore, BridgeStateStore, MuteStateStore {
   private readonly projectToSession = new Map<string, string>();
   private readonly sessionToProject = new Map<string, string>();
   private readonly sessionNames = new Map<string, string>();
   private readonly lastThreads = new Map<string, Map<string, string>>();
   private readonly projectStates = new Map<string, BridgeProjectStateRecord>();
+  private readonly mutedSessions = new Set<string>();
 
   getSessionByProject(projectInstanceId: string): string | null {
     return this.projectToSession.get(projectInstanceId) ?? null;
@@ -159,10 +167,27 @@ export class InMemoryBindingStore implements BindingStore {
   deleteProjectState(projectInstanceId: string): void {
     this.projectStates.delete(projectInstanceId);
   }
+
+  isMuted(sessionId: string): boolean {
+    return this.mutedSessions.has(sessionId);
+  }
+
+  mute(sessionId: string): void {
+    this.mutedSessions.add(sessionId);
+  }
+
+  unmute(sessionId: string): void {
+    this.mutedSessions.delete(sessionId);
+  }
+
+  getAllMutedSessions(): string[] {
+    return Array.from(this.mutedSessions);
+  }
 }
 
 export interface BindingSnapshot {
   bindings: BindingRecord[];
   threadMemories: ThreadMemoryRecord[];
   projectStates: BridgeProjectStateRecord[];
+  mutedSessions: string[];
 }

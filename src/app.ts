@@ -548,7 +548,7 @@ export function createBridgeApp(options: {
   const apiServer = createApiServer({
     bindingService,
   });
-  const muteService = createMuteService();
+  const muteService = createMuteService(bindingStore);
   const chatCommandService = createChatCommandService({
     bindingService,
     muteService,
@@ -853,9 +853,11 @@ export function createBridgeApp(options: {
 
     // Check mute state: if muted and not @mentioned, ignore all messages including //mute
     // Even //mute on/off requires @mention to avoid multi-bot conflicts
+    // Exception: //mute commands bypass mute check since text messages can't reliably detect @mention
+    const isMuteCommand = text.startsWith('//mute');
     const isMuted = muteService.isMuted(message.sessionId);
     console.log(`[bridge] mute check: sessionId=${message.sessionId}, isMuted=${isMuted}, mentioned=${message.mentioned}, text="${text.substring(0, 50)}"`);
-    if (isMuted && !message.mentioned) {
+    if (isMuted && !message.mentioned && !isMuteCommand) {
       console.log(`[bridge] session ${message.sessionId} is muted, ignoring message`);
       return;
     }
