@@ -852,7 +852,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       if (!entry) {
         const config = options.getProjectConfig(projectInstanceId);
         if (!config) {
-          throw new Error(`Project ${projectInstanceId} is not active`);
+          throw new Error(`Project ${projectInstanceId} is not configured`);
         }
 
         const providerManager = new ProviderManager({

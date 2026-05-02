@@ -5,6 +5,7 @@ import path from 'node:path';
 import { LarkAdapter } from './adapters/lark/adapter.ts';
 import { createApiServer } from './api/server.ts';
 import { createChatCommandService } from './commands/chat-command-service.ts';
+import { BRIDGE_COMMANDS, CODEX_COMMANDS } from './commands/help-commands.ts';
 import { BindingService } from './core/binding/binding-service.ts';
 import { BridgeRouter } from './core/router/router.ts';
 import type { LarkChatInfoService } from './services/lark-chat-info-service.ts';
@@ -68,37 +69,6 @@ export interface BridgeRuntime {
 
 type MessageHandler = (message: { sessionId: string; text: string; senderId: string }) => Promise<void>;
 
-const HELP_CARD_BRIDGE_COMMANDS = [
-  { command: '//bind <projectId>', description: 'Bind this chat to a project.' },
-  { command: '//unbind', description: 'Unbind this chat.' },
-  { command: '//list', description: 'Show the current binding.' },
-  { command: '//projects', description: 'List all known projects.' },
-  { command: '//providers', description: 'List providers for the bound project.' },
-  { command: '//provider <id>', description: 'Switch the active provider.' },
-  { command: '//new', description: 'Start a fresh Codex thread for this chat.' },
-  { command: '//status', description: 'Show bridge and Codex session state.' },
-  { command: '//abort', description: 'Abort the current task.' },
-  { command: '//read <path>', description: 'Read a project file and send it to chat as a file.' },
-  { command: '//model <model>', description: 'Set the active model for the bound project.' },
-  { command: '//reload projects', description: 'Reload the projects.json file.' },
-  { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
-  { command: '//approvals', description: 'List pending approval requests.' },
-  { command: '//approve <id>', description: 'Approve a single request.' },
-  { command: '//approve-all <id>', description: 'Approve the request for the whole chat session.' },
-  { command: '//approve-auto <minutes>', description: 'Auto-approve approval requests in this chat for N minutes.' },
-  { command: '//approve-test', description: 'Create a test approval card for manual button checks.' },
-  { command: '//deny <id>', description: 'Deny a pending request.' },
-  { command: '//mute on|off', description: 'Mute this chat (bot responds only when @mentioned).' },
-  { command: '//help', description: 'Show this help card.' },
-] as const;
-
-const HELP_CARD_CODEX_COMMANDS = [
-  { command: '//app/list', description: 'List supported Codex apps.' },
-  { command: '//session/list', description: 'List Codex sessions.' },
-  { command: '//thread/list', description: 'List Codex threads.' },
-  { command: '//thread/read <id>', description: 'Inspect a Codex thread.' },
-  { command: '//review', description: 'Review the current working tree.' },
-] as const;
 
 function isHelpCommand(text: string): boolean {
   const normalized = text.trim().toLowerCase();
@@ -878,8 +848,8 @@ export function createBridgeApp(options: {
             card: buildUnboundCard({
               sessionId: message.sessionId,
               senderId: message.senderId,
-              bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
-              codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+              bridgeCommands: [...BRIDGE_COMMANDS],
+              codexCommands: [...CODEX_COMMANDS],
             }),
             fallbackText: '[lark-agent-bridge] this chat is not bound to any project',
           });
@@ -1013,8 +983,8 @@ export function createBridgeApp(options: {
           await larkAdapter.sendCard({
             targetSessionId: message.sessionId,
             card: buildHelpCard({
-              bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
-              codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+              bridgeCommands: [...BRIDGE_COMMANDS],
+              codexCommands: [...CODEX_COMMANDS],
             }),
             fallbackText: commandLines.join('\n'),
           });
@@ -1080,8 +1050,8 @@ export function createBridgeApp(options: {
             targetSessionId: message.sessionId,
             card: buildUnknownCommandCard({
               unknownCommand: unknownCmd,
-              bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
-              codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+              bridgeCommands: [...BRIDGE_COMMANDS],
+              codexCommands: [...CODEX_COMMANDS],
               projectId: projectId ?? 'n/a',
               statusLabel,
               rateBar,
@@ -1558,8 +1528,8 @@ export function createBridgeApp(options: {
           card: buildUnboundCard({
             sessionId: message.sessionId,
             senderId: message.senderId,
-            bridgeCommands: [...HELP_CARD_BRIDGE_COMMANDS],
-            codexCommands: [...HELP_CARD_CODEX_COMMANDS],
+            bridgeCommands: [...BRIDGE_COMMANDS],
+            codexCommands: [...CODEX_COMMANDS],
           }),
           fallbackText,
         });

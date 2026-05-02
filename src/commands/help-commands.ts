@@ -1,0 +1,33 @@
+export const BRIDGE_COMMANDS = [
+  { command: '//bind <projectId>', description: 'Bind this chat to a project.' },
+  { command: '//unbind', description: 'Unbind this chat.' },
+  { command: '//list', description: 'Show the current binding.' },
+  { command: '//projects', description: 'List all known projects.' },
+  { command: '//providers', description: 'List providers for the bound project.' },
+  { command: '//provider <id>', description: 'Switch the active provider.' },
+  { command: '//new', description: 'Start a fresh Codex thread for this chat.' },
+  { command: '//status', description: 'Show bridge and Codex session state.' },
+  { command: '//abort', description: 'Abort the current task.' },
+  { command: '//read <path>', description: 'Read a project file and send it to chat as a file.' },
+  { command: '//model <model>', description: 'Set the active model for the bound project.' },
+  { command: '//reload projects', description: 'Reload the projects.json file.' },
+  { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
+  { command: '//approvals', description: 'List pending approval requests.' },
+  { command: '//approve <id>', description: 'Approve a single request.' },
+  { command: '//approve-all <id>', description: 'Approve the request for the whole chat session.' },
+  { command: '//approve-auto <minutes>', description: 'Auto-approve approval requests in this chat for N minutes.' },
+  { command: '//approve-test', description: 'Create a test approval card for manual button checks.' },
+  { command: '//deny <id>', description: 'Deny a pending request.' },
+  { command: '//mute on|off', description: 'Mute this chat (bot responds only when @mentioned).' },
+  { command: '//project add local <path> [id]', description: 'Add a local project.' },
+  { command: '//project add remote <git-remote>', description: 'Add a project from git remote.' },
+  { command: '//help', description: 'Show this help card.' },
+] as const;
+
+export const CODEX_COMMANDS = [
+  { command: '//app/list', description: 'List supported Codex apps.' },
+  { command: '//session/list', description: 'List Codex sessions.' },
+  { command: '//thread/list', description: 'List Codex threads.' },
+  { command: '//thread/read <id>', description: 'Inspect a Codex thread.' },
+  { command: '//review', description: 'Review the current working tree.' },
+] as const;

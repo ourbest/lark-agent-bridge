@@ -4,6 +4,7 @@ import type { ApprovalService } from '../runtime/approval-service.ts';
 import type { PermissionMode } from '../runtime/project-config.ts';
 import type { ProviderDescriptor, ProviderState } from '../runtime/provider-registry.ts';
 import type { Thread } from '../runtime/thread-manager.ts';
+import { BRIDGE_COMMANDS, CODEX_COMMANDS } from './help-commands.ts';
 
 export interface ChatCommandInput {
   sessionId: string;
@@ -113,43 +114,16 @@ function formatNotBoundMessage(): string[] {
 }
 
 function buildHelpLines(): string[] {
-  return [
-    '[lark-agent-bridge] commands:',
-    '  //bind <projectId>  - bind this chat to a project',
-    '  //unbind            - unbind this chat',
-    '  //list              - show current binding',
-    '  //projects          - list all projects',
-    '  //providers         - list providers for the bound project',
-    '  //provider <id>     - switch the active provider',
-    '  //new               - start a new codex thread for this chat',
-    '  //status            - show bridge and codex state',
-    '  //read <path>       - read a project file and send it to chat as a file',
-    '  //model <model>     - set the project model',
-    '  //mode [plan|auto-edit|yolo] - set the project execution mode',
-    '  //restart           - restart the bridge process',
-    '  //abort             - abort the current task',
-    '  //reload projects   - reload projects.json',
-    '  //project add local <path> [id] - add a local project',
-    '  //project add remote <git-remote> - add a project from git remote',
-    '  //resume <threadId|last> - resume a codex thread (threadId comes from thread/list)',
-    '  //approvals         - list pending approval requests',
-    '  //approve <id>      - approve one request',
-    '  //approve-all <id>  - approve one request for the session',
-    '  //approve-auto <minutes> - auto-approve this chat for N minutes',
-    '  //approve-test      - create a test approval card for manual button checks',
-    '  //deny <id>         - deny one request',
-    '  //thread list       - list background tasks (interactive card)',
-    '  //thread cancel <id> - cancel a background task',
-    '  //thread pause <id>  - pause a background task',
-    '  //thread resume <id> - resume a background task',
-    '  //mute on|off       - mute this chat (bot responds only when @mentioned)',
-    '  //help              - show this help',
-    '  //app/list          - list codex apps',
-    '  //session/list      - list codex sessions',
-    '  //thread/list       - list codex threads',
-    '  //thread/read <id>  - inspect a codex thread',
-    '  //review            - review the current working tree',
-  ];
+  const lines: string[] = ['[lark-agent-bridge] commands:'];
+  for (const { command, description } of BRIDGE_COMMANDS) {
+    lines.push(`  ${command}  - ${description.replace(/\.$/, '')}`);
+  }
+  lines.push('');
+  lines.push('Codex commands:');
+  for (const { command, description } of CODEX_COMMANDS) {
+    lines.push(`  ${command}  - ${description.replace(/\.$/, '')}`);
+  }
+  return lines;
 }
 
 function looksLikeProjectId(token: string): boolean {
