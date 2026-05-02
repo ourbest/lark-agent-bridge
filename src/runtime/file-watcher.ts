@@ -18,11 +18,16 @@ export interface FileWatcherDeps {
 export class FileWatcherService {
   private watcher: chokidar.FSWatcher | null = null;
   private processingFiles = new Set<string>();
+  private config: FileWatcherConfig;
+  private deps: FileWatcherDeps;
 
   constructor(
-    private config: FileWatcherConfig,
-    private deps: FileWatcherDeps,
-  ) {}
+    config: FileWatcherConfig,
+    deps: FileWatcherDeps,
+  ) {
+    this.config = config;
+    this.deps = deps;
+  }
 
   start() {
     if (!this.config.enabled) {
