@@ -184,6 +184,10 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
             } else {
               console.warn(`[feishu] image message missing image_key: ${JSON.stringify(parsed)}`);
             }
+          } else if (msgType === 'text') {
+            // 普通文本消息
+            text = parsed.text ?? '';
+            console.log(`[feishu] text message: "${text}"`);
           } else if (msgType === 'post') {
             // 富文本消息：解析 content 数组中的文本和图片
             const parts: string[] = [];
