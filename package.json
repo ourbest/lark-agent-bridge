@@ -12,6 +12,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.6.0",
     "@qwen-code/sdk": "^0.1.5",
+    "chokidar": "^4.0.0",
     "dotenv": "^17.4.0"
   }
 }
