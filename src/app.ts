@@ -849,15 +849,23 @@ export function createBridgeApp(options: {
       }
     }
 
-    const text = message.text.trim();
-
-    // Check mute state: if muted and not @mentioned, ignore all messages including //mute
-    // Even //mute on/off requires @mention to avoid multi-bot conflicts
-    // Exception: //mute commands bypass mute check since text messages can't reliably detect @mention
-    const isMuteCommand = text.startsWith('//mute');
+    const rawText = message.text.trim();
     const isMuted = muteService.isMuted(message.sessionId);
-    console.log(`[bridge] mute check: sessionId=${message.sessionId}, isMuted=${isMuted}, mentioned=${message.mentioned}, text="${text.substring(0, 50)}"`);
-    if (isMuted && !message.mentioned && !isMuteCommand) {
+
+    // Strip @mention prefix if present (muted state still processes @mention messages)
+    let text = rawText;
+    let mentioned = message.mentioned ?? false;
+    if (mentioned) {
+      // Match @open_id or @user_name at the start, followed by optional whitespace
+      const mentionMatch = rawText.match(/^@[^\s@]+(?:\s+|$)\s*/);
+      if (mentionMatch) {
+        text = rawText.slice(mentionMatch[0].length).trim();
+        console.log(`[bridge] stripped @mention prefix, remaining text: "${text}"`);
+      }
+    }
+
+    console.log(`[bridge] mute check: sessionId=${message.sessionId}, isMuted=${isMuted}, mentioned=${mentioned}, text="${text.substring(0, 50)}"`);
+    if (isMuted && !mentioned) {
       console.log(`[bridge] session ${message.sessionId} is muted, ignoring message`);
       return;
     }
