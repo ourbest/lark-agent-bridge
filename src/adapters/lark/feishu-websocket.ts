@@ -13,6 +13,7 @@ import {
 export interface FeishuWebSocketTransportOptions {
   appId: string;
   appSecret: string;
+  botOpenId?: string;
   wsClient: {
     start(params: { eventDispatcher: { register(handler: Record<string, Function>): { invoke(data: unknown, params?: object): Promise<unknown> } } }): Promise<void>;
     close(): void;
@@ -200,7 +201,10 @@ export function createFeishuWebSocketTransport(options: FeishuWebSocketTransport
                     if (item.tag === 'text' && typeof item.text === 'string') {
                       parts.push(item.text);
                     } else if (item.tag === 'at' && item.user_id) {
-                      mentioned = true;
+                      // Only mark as mentioned if it's the bot being @mentioned
+                      if (options.botOpenId && item.user_id === options.botOpenId) {
+                        mentioned = true;
+                      }
                     } else if (item.tag === 'img' && item.image_key) {
                       imgs.push({
                         fileKey: item.image_key,

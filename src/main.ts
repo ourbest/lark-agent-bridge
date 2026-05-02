@@ -1029,9 +1029,21 @@ async function createFeishuWebSocketTransportFromRuntime(feishuRuntime: { appId:
   });
 
   const downloadHandler = createFileDownloadHandler(restClient);
+
+  // Fetch bot open_id to detect when bot is @mentioned vs other users
+  let botOpenId: string | undefined;
+  try {
+    const botInfo = await restClient.bot.v6.botInfo.get({});
+    botOpenId = botInfo.data?.bot?.open_id;
+    console.log(`[main] bot open_id: ${botOpenId ?? 'unknown'}`);
+  } catch (error) {
+    console.warn(`[main] failed to fetch bot info: ${error}`);
+  }
+
   const transport = createFeishuWebSocketTransport({
     appId: feishuRuntime.appId,
     appSecret: feishuRuntime.appSecret,
+    botOpenId,
     wsClient,
     eventDispatcher,
     sendMessageFn: async ({ receiveId, msgType, content }) => {
