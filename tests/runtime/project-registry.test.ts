@@ -351,6 +351,75 @@ test('forwards text deltas and activity summaries for active project sessions', 
   ]);
 });
 
+test('emits textDelta from non-active provider to sessions via emitProgress', async () => {
+  const progressUpdates: Array<{ projectInstanceId: string; sessionId: string; textDelta?: string }> = [];
+  let activeClient: CodexProjectClient & {
+    onTextDelta?: ((text: string) => void) | null;
+  } | null = null;
+  let nonActiveClient: CodexProjectClient & {
+    onTextDelta?: ((text: string) => void) | null;
+  } | null = null;
+
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? {
+            projectInstanceId: 'project-a',
+            websocketUrl: 'ws://localhost:4000',
+            cwd: '/repo/project-a',
+            providers: [
+              { id: 'codex', kind: 'codex', transport: 'stdio' },
+              { id: 'qwen', kind: 'qwen', transport: 'websocket' },
+            ],
+          }
+        : null,
+    createClient: (_projectId, _config, provider) => {
+      const client = {
+        generateReply: async ({ text }: { text: string }) => `${provider?.id ?? 'codex'}:${text}`,
+        stop: async () => {},
+      };
+      if (provider?.id === 'qwen') {
+        activeClient = client as typeof activeClient;
+      } else {
+        nonActiveClient = client as typeof nonActiveClient;
+      }
+      return client as CodexProjectClient;
+    },
+    onProgress: async (input) => {
+      progressUpdates.push(input);
+    },
+  });
+
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-1' });
+
+  // Trigger lazy loading - this starts the default (codex) provider
+  const handler = registry.getHandler('project-a');
+  assert.ok(handler !== null);
+  await handler!({ projectInstanceId: 'project-a', message: { text: 'first' } });
+
+  // Switch to qwen as active provider (codex becomes non-active but started)
+  await registry.setActiveProvider('project-a', 'qwen');
+
+  // Verify codex is now non-active provider with a started client
+  const providers = await registry.getProjectProviders('project-a');
+  const codexProvider = providers.find((p) => p.id === 'codex');
+  assert.ok(codexProvider?.started, 'codex should be started');
+  assert.ok(!codexProvider?.active, 'codex should be non-active');
+
+  // Simulate textDelta from non-active (codex) provider
+  assert.ok(nonActiveClient);
+  nonActiveClient.onTextDelta?.('background task output');
+
+  // Verify the textDelta was emitted via onProgress
+  assert.deepEqual(progressUpdates, [
+    {
+      projectInstanceId: 'project-a',
+      sessionId: 'chat-1',
+      textDelta: 'background task output',
+    },
+  ]);
+});
+
 test('captures generateReply failures in project diagnostics', async () => {
   const registry = createProjectRegistry({
     getProjectConfig: (id) => id === 'project-a' ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000', cwd: '/repo/project-a' } : null,
