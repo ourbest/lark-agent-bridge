@@ -387,6 +387,12 @@ export class ProviderManager {
     return [...this.entries.entries()].filter(([, entry]) => entry.client !== null).map(([provider]) => provider);
   }
 
+  getAllStartedClients(): CodexProjectClient[] {
+    return [...this.entries.values()]
+      .filter(entry => entry.client !== null)
+      .map(entry => entry.client as CodexProjectClient);
+  }
+
   async stop(): Promise<void> {
     const startedClients = [...this.entries.values()]
       .map((entry) => entry.client)
