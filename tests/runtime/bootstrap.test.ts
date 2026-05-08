@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   createLocalDevLarkTransport,
+  resolveAgentIdleTimeoutHours,
+  resolveAgentIdleTimeoutMs,
   resolveBridgeConfig,
   resolveProjectsFilePath,
   resolveProjectsRootPath,
@@ -145,4 +147,67 @@ test('resolves the projects root path from the environment', () => {
   );
 
   assert.equal(resolveProjectsRootPath({}), undefined);
+});
+
+test('resolveAgentIdleTimeoutHours returns 48 when env var is unset', () => {
+  assert.equal(resolveAgentIdleTimeoutHours({}), 48);
+});
+
+test('resolveAgentIdleTimeoutHours parses valid integer', () => {
+  assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '12' }), 12);
+});
+
+test('resolveAgentIdleTimeoutHours falls back to 48 on zero', () => {
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  try {
+    assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '0' }), 48);
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('resolveAgentIdleTimeoutHours falls back to 48 on negative', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '-1' }), 48);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('resolveAgentIdleTimeoutHours falls back to 48 on NaN', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: 'abc' }), 48);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('resolveAgentIdleTimeoutHours falls back to 48 on Infinity', () => {
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: 'Infinity' }), 48);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('resolveAgentIdleTimeoutHours floors floating point', () => {
+  assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '12.7' }), 12);
+});
+
+test('resolveAgentIdleTimeoutHours returns 48 on empty string', () => {
+  assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '' }), 48);
+  assert.equal(resolveAgentIdleTimeoutHours({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '   ' }), 48);
+});
+
+test('resolveAgentIdleTimeoutMs returns hours converted to ms', () => {
+  assert.equal(resolveAgentIdleTimeoutMs({ BRIDGE_AGENT_IDLE_TIMEOUT_HOURS: '2' }), 2 * 60 * 60 * 1000);
 });

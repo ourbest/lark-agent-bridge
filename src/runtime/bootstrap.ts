@@ -8,6 +8,7 @@ export interface RuntimeEnv {
   BRIDGE_STORAGE_PATH?: string;
   BRIDGE_PROJECTS_FILE?: string;
   BRIDGE_PROJECTS_ROOT?: string;
+  BRIDGE_AGENT_IDLE_TIMEOUT_HOURS?: string;
 }
 
 export interface LocalDevLarkTransport extends LarkTransport {
@@ -51,6 +52,23 @@ export function resolveProjectsFilePath(env: RuntimeEnv = process.env): string {
 export function resolveProjectsRootPath(env: RuntimeEnv = process.env): string | undefined {
   const rootPath = env.BRIDGE_PROJECTS_ROOT?.trim();
   return rootPath === undefined || rootPath === '' ? undefined : rootPath;
+}
+
+export function resolveAgentIdleTimeoutHours(env: RuntimeEnv = process.env): number {
+  const raw = env.BRIDGE_AGENT_IDLE_TIMEOUT_HOURS;
+  if (raw === undefined || raw.trim() === '') {
+    return 48;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`[bootstrap] invalid BRIDGE_AGENT_IDLE_TIMEOUT_HOURS=${raw}, falling back to 48`);
+    return 48;
+  }
+  return Math.floor(parsed);
+}
+
+export function resolveAgentIdleTimeoutMs(env: RuntimeEnv = process.env): number {
+  return resolveAgentIdleTimeoutHours(env) * 60 * 60 * 1000;
 }
 
 export function createLocalDevLarkTransport(options?: {

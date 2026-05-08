@@ -13,6 +13,7 @@ import {
   resolveProjectsFilePath,
   resolveProjectsRootPath,
   resolveStoragePath,
+  resolveAgentIdleTimeoutMs,
 } from './runtime/bootstrap.ts';
 import { resolveCodexRuntimeConfigs, type ProjectConfigEntry, writeProjectsFile, loadProjectsFromFile } from './runtime/codex-config.ts';
 import { CodexAppServerClient } from './adapters/codex/app-server-client.ts';
@@ -833,6 +834,7 @@ export async function run(): Promise<void> {
         source,
       });
     },
+    agentIdleTimeoutMs: resolveAgentIdleTimeoutMs(),
   });
 
   app.bindingService.onBindingChange(async (e) => {

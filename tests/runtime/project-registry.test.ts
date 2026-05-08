@@ -773,3 +773,59 @@ test('marks a project as removed after it disappears from a previous config snap
     sessionCount: 0,
   });
 });
+
+test('agentIdleTimeoutMs is forwarded to ProviderManager', async () => {
+  const registry = createProjectRegistry({
+    agentIdleTimeoutMs: 1234,
+    getProjectConfig: (id) =>
+      id === 'p1'
+        ? {
+            projectInstanceId: 'p1',
+            websocketUrl: 'ws://localhost:4000',
+            cwd: '/repo/p1',
+          }
+        : null,
+    createClient: () => createMockClient('p1'),
+  });
+  await registry.onBindingChanged({ type: 'bound', projectId: 'p1', sessionId: 's1' });
+  const entry = (registry as any).activeProjects?.get('p1');
+  assert.equal((entry?.providerManager as any)?.idleTimeoutMs, 1234);
+});
+
+test('textDelta from a provider client triggers markActivity on that provider', async () => {
+  const registry = createProjectRegistry({
+    agentIdleTimeoutMs: 60_000,
+    getProjectConfig: (id) =>
+      id === 'p1'
+        ? {
+            projectInstanceId: 'p1',
+            websocketUrl: 'ws://localhost:4000',
+            cwd: '/repo/p1',
+          }
+        : null,
+    createClient: () => createMockClient('p1'),
+  });
+  await registry.onBindingChanged({ type: 'bound', projectId: 'p1', sessionId: 's1' });
+
+  const entry = (registry as any).activeProjects?.get('p1');
+  assert(entry != null);
+
+  // Trigger lazy client creation
+  const handler = registry.getHandler('p1');
+  assert.ok(handler !== null);
+  await handler!({ projectInstanceId: 'p1', message: { text: 'trigger' } });
+
+  const providerManager = entry.providerManager;
+  const entries = (providerManager as any).entries as Map<string, { lastActivityAt: number }>;
+  const codexEntry = entries.get('codex')!;
+  const before = codexEntry.lastActivityAt;
+
+  await new Promise((r) => setTimeout(r, 5));
+
+  const codexClient = providerManager.getStartedClient('codex');
+  assert(codexClient != null);
+  codexClient.onTextDelta?.('some output');
+
+  const after = codexEntry.lastActivityAt;
+  assert.ok(after > before, `expected ${after} > ${before}`);
+});

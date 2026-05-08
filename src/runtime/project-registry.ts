@@ -70,6 +70,7 @@ export interface ProjectRegistryOptions {
   onSystemInit?: (projectInstanceId: string, data: SystemInitData) => void;
   getLastThread?: (projectInstanceId: string, sessionId: string) => string | null;
   setLastThread?: (projectInstanceId: string, sessionId: string, threadId: string) => void;
+  agentIdleTimeoutMs?: number;
 }
 
 export interface ProjectRegistry {
@@ -194,12 +195,13 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     knownProjectIds.add(projectId);
   }
 
-  function attachServerRequestHandler(projectId: string, client: CodexProjectClient): void {
+  function attachServerRequestHandler(projectId: string, providerId: string, client: CodexProjectClient): void {
     if (options.onServerRequest === undefined) {
       return;
     }
 
     client.onServerRequest = (request) => {
+      activeProjects.get(projectId)?.providerManager.markActivity(providerId);
       void options.onServerRequest?.({
         projectInstanceId: projectId,
         request,
@@ -214,9 +216,10 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
-  function attachStatusHandler(projectId: string, client: CodexProjectClient): void {
+  function attachStatusHandler(projectId: string, providerId: string, client: CodexProjectClient): void {
     const previousHandler = client.onNotification ?? null;
     client.onNotification = (message) => {
+      activeProjects.get(projectId)?.providerManager.markActivity(providerId);
       if (previousHandler !== null) {
         void previousHandler(message);
       }
@@ -263,9 +266,10 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
-  function attachTextDeltaHandler(projectId: string, client: CodexProjectClient): void {
+  function attachTextDeltaHandler(projectId: string, providerId: string, client: CodexProjectClient): void {
     const previousHandler = client.onTextDelta ?? null;
     client.onTextDelta = (text) => {
+      activeProjects.get(projectId)?.providerManager.markActivity(providerId);
       previousHandler?.(text);
       if (text !== '') {
         emitProgress(projectId, { textDelta: text });
@@ -322,12 +326,13 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     return null;
   }
 
-  function attachThreadChangedHandler(projectId: string, client: CodexProjectClient): void {
+  function attachThreadChangedHandler(projectId: string, providerId: string, client: CodexProjectClient): void {
     if (options.setLastThread === undefined) {
       return;
     }
 
     client.onThreadChanged = (threadId) => {
+      activeProjects.get(projectId)?.providerManager.markActivity(providerId);
       const entry = activeProjects.get(projectId);
       if (!entry) {
         return;
@@ -339,12 +344,13 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
     };
   }
 
-  function attachSystemInitHandler(projectId: string, client: CodexProjectClient): void {
+  function attachSystemInitHandler(projectId: string, providerId: string, client: CodexProjectClient): void {
     if (options.onSystemInit === undefined) {
       return;
     }
 
     client.onSystemInit = (data) => {
+      activeProjects.get(projectId)?.providerManager.markActivity(providerId);
       options.onSystemInit?.(projectId, data);
     };
   }
@@ -404,26 +410,16 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       getPersistedState: () => options.bridgeStateStore?.getProjectState(projectId) ?? null,
       setPersistedState: (state) => options.bridgeStateStore?.setProjectState(state),
       allocatePort: options.allocateWebSocketPort,
-      onClientCreated: (_, client) => {
-        attachServerRequestHandler(projectId, client);
-        attachStatusHandler(projectId, client);
-        attachTextDeltaHandler(projectId, client);
-        attachThreadChangedHandler(projectId, client);
-        attachSystemInitHandler(projectId, client);
+      idleTimeoutMs: options.agentIdleTimeoutMs,
+      onClientCreated: (providerId, client) => {
+        attachServerRequestHandler(projectId, providerId, client);
+        attachStatusHandler(projectId, providerId, client);
+        attachTextDeltaHandler(projectId, providerId, client);
+        attachThreadChangedHandler(projectId, providerId, client);
+        attachSystemInitHandler(projectId, providerId, client);
       },
     });
     const client = providerManager.getClient();
-
-    // Attach output handlers to all already-started non-active provider clients
-    for (const startedClient of providerManager.getAllStartedClients()) {
-      if (startedClient !== client) {
-        attachServerRequestHandler(projectId, startedClient);
-        attachStatusHandler(projectId, startedClient);
-        attachTextDeltaHandler(projectId, startedClient);
-        attachThreadChangedHandler(projectId, startedClient);
-        attachSystemInitHandler(projectId, startedClient);
-      }
-    }
 
     const entry = {
       client,
@@ -434,6 +430,17 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       currentTaskController: null as AbortController | null,
     };
     activeProjects.set(projectId, entry);
+
+    // Attach output handlers to all already-started non-active provider clients
+    for (const { providerId, client: startedClient } of providerManager.getStartedEntries()) {
+      if (startedClient !== client) {
+        attachServerRequestHandler(projectId, providerId, startedClient);
+        attachStatusHandler(projectId, providerId, startedClient);
+        attachTextDeltaHandler(projectId, providerId, startedClient);
+        attachThreadChangedHandler(projectId, providerId, startedClient);
+        attachSystemInitHandler(projectId, providerId, startedClient);
+      }
+    }
 
     return entry;
   }
@@ -818,6 +825,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           projectConfig: config,
           createClient: (input) => options.createClient(projectInstanceId, { ...input }, input.provider),
           allocatePort: options.allocateWebSocketPort,
+          idleTimeoutMs: options.agentIdleTimeoutMs,
         });
 
         return providerManager.getProviderStates().map((state) => ({
@@ -873,6 +881,7 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
           getPersistedState: () => options.bridgeStateStore?.getProjectState(projectInstanceId) ?? null,
           setPersistedState: (state) => options.bridgeStateStore?.setProjectState(state),
           allocatePort: options.allocateWebSocketPort,
+          idleTimeoutMs: options.agentIdleTimeoutMs,
         });
         await providerManager.setActiveProvider(provider);
         return;
@@ -914,5 +923,8 @@ export function createProjectRegistry(options: ProjectRegistryOptions): ProjectR
       const projectIds = Array.from(activeProjects.keys());
       await Promise.all(projectIds.map((id) => disconnectProject(id)));
     },
+
+    // Exposed for testing
+    activeProjects,
   };
 }
