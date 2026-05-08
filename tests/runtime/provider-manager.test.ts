@@ -173,3 +173,76 @@ test('stopProvider on already-stopped provider is a no-op', async () => {
   await (manager as any).stopProvider('codex');
   assert.equal(manager.getStartedClient('codex'), null);
 });
+
+test('scanIdle stops clients whose lastActivityAt exceeds idleTimeoutMs', async () => {
+  const stops: string[] = [];
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    idleTimeoutMs: 50,
+    createClient: ({ provider }) => ({
+      generateReply: async () => 'ok',
+      stop: async () => { stops.push(provider.id); },
+    }),
+  });
+
+  await manager.ensureProviderClient('codex');
+  await new Promise((r) => setTimeout(r, 80));
+  await (manager as any).scanIdle();
+
+  assert.equal(manager.getStartedClient('codex'), null);
+  assert.deepEqual(stops, ['codex']);
+
+  await manager.stop();
+});
+
+test('markActivity refreshes timer so scanIdle does not stop the client', async () => {
+  const stops: string[] = [];
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    idleTimeoutMs: 80,
+    createClient: ({ provider }) => ({
+      generateReply: async () => 'ok',
+      stop: async () => { stops.push(provider.id); },
+    }),
+  });
+
+  await manager.ensureProviderClient('codex');
+  await new Promise((r) => setTimeout(r, 50));
+  manager.markActivity('codex');
+  await new Promise((r) => setTimeout(r, 50));
+  await (manager as any).scanIdle();
+
+  assert.notEqual(manager.getStartedClient('codex'), null);
+  assert.deepEqual(stops, []);
+
+  await manager.stop();
+});
+
+test('scanIdle skips entries with no client', async () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    idleTimeoutMs: 50,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await new Promise((r) => setTimeout(r, 80));
+  await (manager as any).scanIdle();
+
+  assert.equal(manager.getStartedClient('codex'), null);
+  await manager.stop();
+});
+
+test('stop() clears the idle scan timer', async () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    idleTimeoutMs: 50,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await manager.stop();
+  assert.equal((manager as any).scanTimer, null);
+});

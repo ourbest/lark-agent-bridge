@@ -59,6 +59,7 @@ export interface ProviderManagerOptions {
   getPersistedState?: () => BridgeProjectStateRecord | null;
   setPersistedState?: (state: BridgeProjectStateRecord) => void;
   onClientCreated?: (providerId: string, client: CodexProjectClient) => void;
+  idleTimeoutMs?: number;
   createClient: (input: ProviderClientFactoryInput) => CodexProjectClient;
 }
 
@@ -141,6 +142,8 @@ function buildBaseProjectConfig(options: ProviderManagerOptions): ProviderManage
   };
 }
 
+const SCAN_INTERVAL_MS = 5 * 60 * 1000;
+
 export class ProviderManager {
   private readonly projectConfig: ProviderManagerProjectConfig;
   private readonly createClient: (input: ProviderClientFactoryInput) => CodexProjectClient;
@@ -151,6 +154,8 @@ export class ProviderManager {
   private readonly entries = new Map<string, ProviderEntry>();
   private activeProvider: string;
   private readonly clientProxy: CodexProjectClient;
+  private readonly idleTimeoutMs: number;
+  private scanTimer: NodeJS.Timeout | null = null;
 
   constructor(options: ProviderManagerOptions) {
     this.projectConfig = buildBaseProjectConfig(options);
@@ -160,6 +165,7 @@ export class ProviderManager {
     this.setProjectState = stateStore.setProjectState;
     this.allocatePort = options.allocatePort;
     this.onClientCreated = options.onClientCreated;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 0;
 
     for (const descriptor of this.projectConfig.providers ?? defaultProviderDescriptors()) {
       this.entries.set(descriptor.id, {
@@ -199,6 +205,13 @@ export class ProviderManager {
     }
 
     this.clientProxy = this.buildClientProxy();
+
+    if (this.idleTimeoutMs > 0) {
+      this.scanTimer = setInterval(() => {
+        void this.scanIdle();
+      }, SCAN_INTERVAL_MS);
+      this.scanTimer.unref();
+    }
   }
 
   private buildClientProxy(): CodexProjectClient {
@@ -408,7 +421,28 @@ export class ProviderManager {
     this.persistState();
   }
 
+  private async scanIdle(): Promise<void> {
+    if (this.idleTimeoutMs <= 0) return;
+    const now = Date.now();
+    for (const [provider, entry] of this.entries) {
+      if (entry.client === null) continue;
+      if (now - entry.lastActivityAt > this.idleTimeoutMs) {
+        try {
+          await this.stopProvider(provider);
+          console.log(`[provider-manager] stopped idle ${provider}`);
+        } catch (error) {
+          console.error(`[provider-manager] failed to stop idle ${provider}`, error);
+        }
+      }
+    }
+  }
+
   async stop(): Promise<void> {
+    if (this.scanTimer !== null) {
+      clearInterval(this.scanTimer);
+      this.scanTimer = null;
+    }
+
     const startedClients = [...this.entries.values()]
       .map((entry) => entry.client)
       .filter((client): client is CodexProjectClient => client !== null);
