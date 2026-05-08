@@ -109,3 +109,33 @@ test('allocates a websocket port lazily and persists active provider state', asy
     startedProviders: ['codex-web'],
   });
 });
+
+test('markActivity updates lastActivityAt for the provider entry', async () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    createClient: () => ({
+      generateReply: async () => 'ok',
+      stop: async () => {},
+    }),
+  });
+
+  await manager.ensureProviderClient('codex');
+  const entries = (manager as any).entries as Map<string, { lastActivityAt: number }>;
+  const before = entries.get('codex')!.lastActivityAt;
+
+  await new Promise((r) => setTimeout(r, 5));
+  manager.markActivity('codex');
+
+  const after = entries.get('codex')!.lastActivityAt;
+  assert.ok(after > before, `expected ${after} > ${before}`);
+});
+
+test('markActivity is a no-op for unknown provider', () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+  manager.markActivity('nonexistent');
+});

@@ -65,6 +65,7 @@ export interface ProviderManagerOptions {
 type ProviderEntry = {
   descriptor: ProviderDescriptor;
   client: CodexProjectClient | null;
+  lastActivityAt: number;
 };
 
 function cloneDescriptor(descriptor: ProviderDescriptor): ProviderDescriptor {
@@ -164,6 +165,7 @@ export class ProviderManager {
       this.entries.set(descriptor.id, {
         descriptor: cloneDescriptor(descriptor),
         client: null,
+        lastActivityAt: Date.now(),
       });
     }
 
@@ -317,6 +319,7 @@ export class ProviderManager {
     });
 
     entry.client = client;
+    entry.lastActivityAt = Date.now();
     this.onClientCreated?.(provider, client);
     this.persistState();
     return client;
@@ -361,6 +364,13 @@ export class ProviderManager {
 
   getStartedClient(provider: string): CodexProjectClient | null {
     return this.entries.get(provider)?.client ?? null;
+  }
+
+  markActivity(provider: string): void {
+    const entry = this.entries.get(provider);
+    if (entry !== undefined) {
+      entry.lastActivityAt = Date.now();
+    }
   }
 
   getDescriptor(provider: string): ProviderDescriptor | null {
