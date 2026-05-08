@@ -397,6 +397,17 @@ export class ProviderManager {
     return [...this.entries.entries()].filter(([, entry]) => entry.client !== null).map(([provider]) => provider);
   }
 
+  private async stopProvider(provider: string): Promise<void> {
+    const entry = this.entries.get(provider);
+    if (entry === undefined || entry.client === null) {
+      return;
+    }
+    const client = entry.client;
+    entry.client = null;
+    await client.stop();
+    this.persistState();
+  }
+
   async stop(): Promise<void> {
     const startedClients = [...this.entries.values()]
       .map((entry) => entry.client)

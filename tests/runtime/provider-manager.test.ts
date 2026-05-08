@@ -139,3 +139,37 @@ test('markActivity is a no-op for unknown provider', () => {
   });
   manager.markActivity('nonexistent');
 });
+
+test('stopProvider stops only the specified provider client', async () => {
+  const stops: string[] = [];
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    createClient: ({ provider }) => ({
+      generateReply: async () => 'ok',
+      stop: async () => {
+        stops.push(provider.id);
+      },
+    }),
+  });
+
+  await manager.ensureProviderClient('codex');
+  await manager.ensureProviderClient('qwen');
+
+  await (manager as any).stopProvider('codex');
+
+  assert.equal(manager.getStartedClient('codex'), null);
+  assert.notEqual(manager.getStartedClient('qwen'), null);
+  assert.deepEqual(stops, ['codex']);
+});
+
+test('stopProvider on already-stopped provider is a no-op', async () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await (manager as any).stopProvider('codex');
+  assert.equal(manager.getStartedClient('codex'), null);
+});
