@@ -282,3 +282,49 @@ test('does not start scan timer when idleTimeoutMs is 0', () => {
   });
   assert.equal((manager as any).scanTimer, null);
 });
+
+test('updateProjectConfig replaces the config used by createStartedClient', async () => {
+  const createConfigs: Array<{ model?: string; cwd?: string }> = [];
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    model: 'gpt-4',
+    createClient: ({ model, cwd }) => {
+      createConfigs.push({ model, cwd });
+      return {
+        generateReply: async () => 'ok',
+        stop: async () => {},
+      };
+    },
+  });
+
+  await manager.ensureProviderClient('codex');
+  assert.deepEqual(createConfigs, [{ model: 'gpt-4', cwd: '/repo/project-a' }]);
+
+  manager.updateProjectConfig({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-b',
+    model: 'gpt-4o',
+  });
+
+  await manager.restartProvider('codex');
+  assert.deepEqual(createConfigs, [
+    { model: 'gpt-4', cwd: '/repo/project-a' },
+    { model: 'gpt-4o', cwd: '/repo/project-b' },
+  ]);
+});
+
+test('restartProvider starts an unstarted provider', async () => {
+  const manager = new ProviderManager({
+    projectInstanceId: 'project-a',
+    cwd: '/repo/project-a',
+    createClient: () => ({
+      generateReply: async () => 'ok',
+      stop: async () => {},
+    }),
+  });
+
+  assert.equal(manager.getStartedClient('codex'), null);
+  await manager.restartProvider('codex');
+  assert.notEqual(manager.getStartedClient('codex'), null);
+});

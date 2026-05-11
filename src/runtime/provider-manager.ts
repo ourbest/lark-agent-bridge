@@ -145,7 +145,7 @@ function buildBaseProjectConfig(options: ProviderManagerOptions): ProviderManage
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
 
 export class ProviderManager {
-  private readonly projectConfig: ProviderManagerProjectConfig;
+  private projectConfig: ProviderManagerProjectConfig;
   private readonly createClient: (input: ProviderClientFactoryInput) => CodexProjectClient;
   private readonly getProjectState?: (projectInstanceId: string) => BridgeProjectStateRecord | null;
   private readonly setProjectState?: (state: BridgeProjectStateRecord) => void;
@@ -446,6 +446,15 @@ export class ProviderManager {
     } finally {
       this.stoppingProviders.delete(provider);
     }
+  }
+
+  updateProjectConfig(config: ProviderManagerProjectConfig): void {
+    this.projectConfig = buildBaseProjectConfig({ projectConfig: config });
+  }
+
+  async restartProvider(providerId: string): Promise<void> {
+    await this.stopProvider(providerId);
+    await this.createStartedClient(providerId);
   }
 
   private async scanIdle(): Promise<void> {
