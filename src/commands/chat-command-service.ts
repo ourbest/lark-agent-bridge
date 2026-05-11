@@ -58,6 +58,7 @@ export interface ChatCommandServiceDependencies {
     getActiveProvider?(projectInstanceId: string): Promise<string | null>;
     setActiveProvider?(projectInstanceId: string, provider: string): Promise<void> | void;
     updateProjectConfig?(projectInstanceId: string, input: { model?: string | null; permissionMode?: PermissionMode | null }): Promise<{ model?: string | null; permissionMode?: PermissionMode | null } | null> | { model?: string | null; permissionMode?: PermissionMode | null } | null;
+    restartProjectProvider?(projectInstanceId: string, provider: string): Promise<void>;
     startThread?(projectInstanceId: string, options?: { cwd?: string; force?: boolean }): Promise<string>;
     getLastThread?(projectInstanceId: string, sessionId: string): Promise<string | null>;
     resumeThread?(projectInstanceId: string, threadId: string): Promise<string>;
@@ -756,8 +757,35 @@ export function createChatCommandService(dependencies: ChatCommandServiceDepende
             return await updateProjectModeLines(dependencies, projectId, parsed.args[0]);
           }
 
-          case 'restart':
-            return ['[lark-agent-bridge] restarting bridge process...'];
+          case 'restart': {
+            if (parsed.args.length === 0) {
+              return ['[lark-agent-bridge] restarting bridge process...'];
+            }
+
+            const provider = parsed.args[0];
+            const projectId = await dependencies.bindingService.getProjectBySession(input.sessionId);
+            if (projectId === null) {
+              return formatNotBoundMessage();
+            }
+
+            if (!dependencies.projectRegistry?.restartProjectProvider) {
+              return ['[lark-agent-bridge] provider restart is not configured'];
+            }
+
+            const providers = await dependencies.projectRegistry.listProjectProviders?.(projectId) ?? [];
+            const providerExists = providers.some((p) => p.id === provider);
+            if (!providerExists) {
+              const available = providers.map((p) => p.id).join(', ') || 'none';
+              return [`[lark-agent-bridge] provider '${provider}' not found. Available: ${available}`];
+            }
+
+            try {
+              await dependencies.projectRegistry.restartProjectProvider(projectId, provider);
+              return [`[lark-agent-bridge] restarted ${provider} for ${projectId}`];
+            } catch (error) {
+              return [`[lark-agent-bridge] failed to restart ${provider}: ${error instanceof Error ? error.message : String(error)}`];
+            }
+          }
 
           case 'resume': {
             if (parsed.args.length !== 1) {

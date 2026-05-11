@@ -622,6 +622,152 @@ test('returns an acknowledgement for //restart', async () => {
   assert.deepEqual(lines, ['[lark-agent-bridge] restarting bridge process...']);
 });
 
+test('restarts a specific provider with //restart <provider>', async () => {
+  const bindingService = createBindingService();
+  const restartCalls: Array<{ projectId: string; provider: string }> = [];
+
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      listProjectProviders: registry.getProjectProviders,
+      async restartProjectProvider(projectId, provider) {
+        restartCalls.push({ projectId, provider });
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//restart codex',
+  });
+
+  assert.deepEqual(restartCalls, [{ projectId: 'project-a', provider: 'codex' }]);
+  assert.deepEqual(lines, ['[lark-agent-bridge] restarted codex for project-a']);
+});
+
+test('rejects //restart <provider> when no project is bound', async () => {
+  const bindingService = createBindingService();
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {},
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//restart codex',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] this chat is not bound to any project']);
+});
+
+test('rejects //restart <provider> when provider does not exist', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      listProjectProviders: registry.getProjectProviders,
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//restart nonexistent',
+  });
+
+  assert.ok(lines?.[0]?.includes("provider 'nonexistent' not found"));
+});
+
+test('rejects //restart <provider> when restartProjectProvider is not configured', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      restartProjectProvider: undefined,
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//restart codex',
+  });
+
+  assert.deepEqual(lines, ['[lark-agent-bridge] provider restart is not configured']);
+});
+
+test('returns error when restartProjectProvider throws', async () => {
+  const bindingService = createBindingService();
+  const registry = createProjectRegistry({
+    getProjectConfig: (id) =>
+      id === 'project-a'
+        ? { projectInstanceId: 'project-a', websocketUrl: 'ws://localhost:4000' }
+        : null,
+    createClient: () => ({ generateReply: async () => 'ok', stop: async () => {} }),
+  });
+
+  await bindingService.bindProjectToSession('project-a', 'chat-a');
+  await registry.onBindingChanged({ type: 'bound', projectId: 'project-a', sessionId: 'chat-a' });
+
+  const service = createChatCommandService({
+    bindingService,
+    projectRegistry: {
+      ...registry,
+      listProjectProviders: registry.getProjectProviders,
+      async restartProjectProvider() {
+        throw new Error('provider crashed');
+      },
+    },
+  });
+
+  const lines = await service.execute({
+    sessionId: 'chat-a',
+    senderId: 'user-a',
+    text: '//restart codex',
+  });
+
+  assert.ok(lines?.[0]?.includes('failed to restart codex'));
+  assert.ok(lines?.[0]?.includes('provider crashed'));
+});
+
 test('rejects bare codex commands without the // prefix', async () => {
   const bindingService = createBindingService();
   const registry = createProjectRegistry({
