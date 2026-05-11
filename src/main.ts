@@ -419,6 +419,12 @@ export async function run(): Promise<void> {
         }
         await projectRegistryImpl.restoreBinding(projectInstanceId, sessionId);
       },
+      async restartProjectProvider(projectInstanceId: string, provider: string): Promise<void> {
+        if (projectRegistryImpl === null) {
+          throw new Error('project registry is not initialized');
+        }
+        await projectRegistryImpl.restartProjectProvider(projectInstanceId, provider);
+      },
     },
     reloadProjects: async () => {
       if (reloadProjectsHandler === null) {

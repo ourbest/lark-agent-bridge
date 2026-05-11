@@ -128,6 +128,7 @@ function buildHelpLines(): string[] {
     '  //model <model>     - set the project model',
     '  //mode [plan|auto-edit|yolo] - set the project execution mode',
     '  //restart           - restart the bridge process',
+    '  //restart <provider> - restart a provider for the bound project',
     '  //abort             - abort the current task',
     '  //reload projects   - reload projects.json',
     '  //project add local <path> [id] - add a local project',

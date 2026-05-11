@@ -81,6 +81,7 @@ const HELP_CARD_BRIDGE_COMMANDS = [
   { command: '//read <path>', description: 'Read a project file and send it to chat as a file.' },
   { command: '//model <model>', description: 'Set the active model for the bound project.' },
   { command: '//reload projects', description: 'Reload the projects.json file.' },
+  { command: '//restart <provider>', description: 'Restart a provider for the bound project.' },
   { command: '//resume <threadId|last>', description: 'Resume a Codex thread for this chat.' },
   { command: '//approvals', description: 'List pending approval requests.' },
   { command: '//approve <id>', description: 'Approve a single request.' },
